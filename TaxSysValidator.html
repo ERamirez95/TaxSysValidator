@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Parcel/Bill Validator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font:14px system-ui, sans-serif; margin:0; padding:8px; }
+    label { display:block; margin-bottom:6px; }
+    input { width:100%; padding:8px; box-sizing:border-box; }
+    .msg { margin-top:6px; min-height:1.25rem; }
+    .ok  { color:#156c1e; }
+    .bad { color:#9f1d1d; }
+  </style>
+  <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
+</head>
+<body>
+  <label>Parcel or Bill Number</label>
+  <input id="num" placeholder="Paste parcel or bill number" autocomplete="off" />
+  <div id="m" class="msg">We’ll verify this before you submit.</div>
+
+  <script>
+    // ====== CONFIGURE THESE ======
+    const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
+    const PARCEL_PATH = "/api/ParcelValidatorFunction?code=<<FUNCTION_KEY>>";
+    const BILL_PATH   = "/api/BillValidatorFunction?code=<<FUNCTION_KEY>>";
+    // If your functions are Anonymous, remove the ?code=... from the paths above.
+
+    // ====== WIDGET LOGIC ======
+    const $ = (id) => document.getElementById(id);
+    function say(text, cls = "") { const el = $("m"); el.className = "msg " + cls; el.textContent = text; }
+    function setWidgetValue(val) { JFCustomWidget.setValue(val); } // normalized string when valid, "" otherwise
+
+    async function callValidator(path, payload) {
+      const res = await fetch(BASE + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      let data = null;
+      try { data = await res.json(); } catch {}
+      return { ok: res.ok && data && data.ok === true, data };
+    }
+
+    async function validate(raw) {
+      const v = (raw || "").trim();
+      if (!v) { setWidgetValue(""); say("Enter a parcel or bill number."); return; }
+      say("Validating…");
+      try {
+        // Try PARCEL first
+        let r = await callValidator(PARCEL_PATH, { parcel: v });
+        if (!r.ok) {
+          // Try BILL
+          r = await callValidator(BILL_PATH, { bill: v });
+        }
+        if (r.ok) {
+          const normalized = (r.data && r.data.normalized) ? r.data.normalized : v;
+          setWidgetValue(normalized);
+          say("✓ Valid " + ((r.data && r.data.type) ? r.data.type : "number"), "ok");
+        } else {
+          setWidgetValue("");
+          say("✗ Invalid number", "bad");
+        }
+      } catch {
+        setWidgetValue("");
+        say("⚠ Error contacting validator", "bad");
+      }
+    }
+
+    JFCustomWidget.subscribe("ready",  () => setWidgetValue(""));
+    $("num").addEventListener("change", e => validate(e.target.value));
+    $("num").addEventListener("blur",   e => validate(e.target.value));
+    JFCustomWidget.subscribe("submit", () => { JFCustomWidget.sendSubmit(true); });
+  </script>
+</body>
+</html>
