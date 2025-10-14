@@ -1,120 +1,59 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <title>Parcel/Bill Validator</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-        :root {
-            color-scheme: light dark;
-        }
+<script>
+  const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
 
-        body {
-            font: 14px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-            margin: 0;
-            padding: 10px;
-        }
+  // Parcel: GET /api/parcels/{parcel}?code=...
+  const PARCEL_URL = (v) =>
+    `${BASE}/api/parcels/${encodeURIComponent(v)}?code=HvcyDqdJg3iCJT-xt4AZ0wtGvJALITMb8JFCwiIYFOmtAzFul9CJrA==`;
 
-        label {
-            display: block;
-            margin: 0 0 6px;
-            font-weight: 600;
-        }
+  // Bill: GET /api/bills/{bill}?code=...
+  const BILL_URL = (v) =>
+    `${BASE}/api/bills/${encodeURIComponent(v)}?code=PE97g8PBfTUnpfFBOGi1rlHrW2Ht9alomPv0D7Ub08vWAzFuA0XlPA==`;
 
-        input {
-            width: 100%;
-            padding: 8px;
-            box-sizing: border-box;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-        }
-
-        .msg {
-            margin-top: 8px;
-            min-height: 1.25rem;
-        }
-
-        .ok {
-            color: #156c1e;
-        }
-
-        .bad {
-            color: #9f1d1d;
-        }
-
-        .hint {
-            opacity: .8;
-            font-size: 12px;
-            margin-top: 4px;
-        }
-    </style>
-    <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
-</head>
-<body>
-    <label for="num">Parcel or Bill Number</label>
-    <input id="num" placeholder="Paste parcel or bill number" autocomplete="off" />
-    <div id="m" class="msg">We’ll verify this before you submit.</div>
-    <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
-
-    <script>
-    // ===== LIVE ENDPOINTS =====
-    const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
-    const PARCEL_URL = (v) =>
-      `${BASE}/api/parcels/${encodeURIComponent(v)}?code=HvcyDqdJg3iCJT-xt4AZ0wtGvJALITMb8JFCwiIYFOmtAzFul9CJrA==`;
-
-    // ===== UI helpers =====
-    const $ = (id) => document.getElementById(id);
-    function say(t, cls=""){ const e=$("m"); e.className="msg "+cls; e.textContent=t; }
-    function setWidgetValue(val){
-      if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
-        JFCustomWidget.setValue(val);      // normalized value when valid, "" when invalid
-      }
+  const $ = (id) => document.getElementById(id);
+  function say(t, cls=""){ const e=$("m"); e.className="msg "+cls; e.textContent=t; }
+  function setVal(v){
+    if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
+      JFCustomWidget.setValue(v); // e.g., "parcel|3132201260000" or "bill|20190586370"; "" if invalid
     }
-    const debounce = (fn,ms)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms);} };
+  }
+  const debounce=(fn,ms)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms);} };
+  async function getJson(url){
+    const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store" });
+    let data=null; try{ data=await res.json(); }catch{}
+    return { status:res.status, ok:res.ok, data };
+  }
 
-    async function getJson(url){
-      const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store" });
-      let data=null; try{ data = await res.json(); }catch{}
-      return { status: res.status, ok: res.ok, data };
-    }
-
-    async function validateRaw(raw){
-      const v = (raw||"").trim();
-      if (!v){ setWidgetValue(""); say("Enter a parcel or bill number."); return; }
-      say("Validating…");
-
-      try{
-        // Hit your PARCEL route (GET + path param)
-        const r = await getJson(PARCEL_URL(v));
-
-        // Treat exists:true as valid; 404 or exists:false as invalid
-        const exists = r.data && (r.data.exists === true || r.data.ok === true);
-        if (exists){
-          setWidgetValue(r.data.normalized || v);
-          say("✓ Valid parcel", "ok");
-        }else{
-          setWidgetValue("");
-          say("✗ Invalid number", "bad");
-        }
-      }catch(e){
-        setWidgetValue("");
-        say("⚠ Error contacting validator", "bad");
+  async function validateRaw(raw){
+    const v = (raw||"").replace(/[^\d]/g,"").trim(); // digits only
+    if(!v){ setVal(""); say("Enter a parcel or bill number."); return; }
+    say("Validating…");
+    try{
+      // 1) Try parcel
+      let r = await getJson(PARCEL_URL(v));
+      if (r.ok && (r.data?.exists===true || r.data?.ok===true)){
+        const n = r.data.normalized || r.data.parcel || v;
+        setVal(`parcel|${n}`); say("✓ Valid parcel","ok"); return;
       }
-    }
-
-    const validate = debounce(validateRaw, 250);
-
-    (function init(){
-      const inJotform = !!(window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function");
-      if (!inJotform) $("standaloneHint").style.display = "block";
-      if (inJotform){
-        JFCustomWidget.subscribe("ready",  () => setWidgetValue(""));         // initialize empty
-        JFCustomWidget.subscribe("submit", () => JFCustomWidget.sendSubmit(true));
+      // 2) Try bill
+      r = await getJson(BILL_URL(v));
+      if (r.ok && (r.data?.exists===true || r.data?.ok===true)){
+        const n = r.data.normalized || r.data.bill || v;
+        setVal(`bill|${n}`); say("✓ Valid bill","ok"); return;
       }
-      $("num").addEventListener("input",  e => validate(e.target.value));
-      $("num").addEventListener("change", e => validate(e.target.value));
-      $("num").addEventListener("blur",   e => validate(e.target.value));
-    })();
-    </script>
-</body>
-</html>
+      setVal(""); say("✗ Invalid number","bad");
+    }catch{
+      setVal(""); say("⚠ Error contacting validator","bad");
+    }
+  }
+
+  const validate = debounce(validateRaw, 250);
+  (function init(){
+    if(window.JFCustomWidget && typeof JFCustomWidget.subscribe==="function"){
+      JFCustomWidget.subscribe("ready", ()=>setVal(""));
+      JFCustomWidget.subscribe("submit", ()=>JFCustomWidget.sendSubmit(true));
+    }
+    $("num").addEventListener("input",  e=>validate(e.target.value));
+    $("num").addEventListener("change", e=>validate(e.target.value));
+    $("num").addEventListener("blur",   e=>validate(e.target.value));
+  })();
+</script>
