@@ -1,36 +1,85 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Parcel/Bill Validator</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { font:14px system-ui, sans-serif; margin:0; padding:8px; }
-    label { display:block; margin-bottom:6px; }
-    input { width:100%; padding:8px; box-sizing:border-box; }
-    .msg { margin-top:6px; min-height:1.25rem; }
-    .ok  { color:#156c1e; }
-    .bad { color:#9f1d1d; }
-  </style>
-  <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
+    <meta charset="utf-8" />
+    <title>Parcel/Bill Validator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            color-scheme: light dark;
+        }
+
+        body {
+            font: 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+        }
+
+        label {
+            display: block;
+            margin: 0 0 6px;
+            font-weight: 600;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        .msg {
+            margin-top: 8px;
+            min-height: 1.25rem;
+        }
+
+        .ok {
+            color: #156c1e;
+        }
+
+        .bad {
+            color: #9f1d1d;
+        }
+
+        .hint {
+            opacity: .8;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+    </style>
+    <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-  <label>Parcel or Bill Number</label>
-  <input id="num" placeholder="Paste parcel or bill number" autocomplete="off" />
-  <div id="m" class="msg">We’ll verify this before you submit.</div>
+    <label for="num">Parcel or Bill Number</label>
+    <input id="num" placeholder="Paste parcel or bill number" autocomplete="off" />
+    <div id="m" class="msg">We’ll verify this before you submit.</div>
+    <div class="hint" id="standaloneHint" style="display:none">
+        (Opened outside Jotform — validation still runs, but form wiring is disabled.)
+    </div>
 
-  <script>
-    // ====== CONFIGURE THESE ======
+    <script>
+    // ========== CONFIGURE THESE ==========
     const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
     const PARCEL_PATH = "/api/ParcelValidatorFunction?code=HvcyDqdJg3iCJT-xt4AZ0wtGvJALITMb8JFCwiIYFOmtAzFul9CJrA==";
     const BILL_PATH   = "/api/BillValidatorFunction?code=PE97g8PBfTUnpfFBOGi1rlHrW2Ht9alomPv0D7Ub08vWAzFuA0XlPA==";
-    // If your functions are Anonymous, remove the ?code=... from the paths above.
+    // If your functions are Anonymous, remove the ?code=... parts above.
 
-    // ====== WIDGET LOGIC ======
+    // ========= UTILITIES =========
     const $ = (id) => document.getElementById(id);
-    function say(text, cls = "") { const el = $("m"); el.className = "msg " + cls; el.textContent = text; }
-    function setWidgetValue(val) { JFCustomWidget.setValue(val); } // normalized string when valid, "" otherwise
+    const msgEl = $("m");
+    function say(text, cls = "") {
+      msgEl.className = "msg " + cls;
+      msgEl.textContent = text;
+    }
+    function setWidgetValue(val) {
+      // In Jotform, publish the value; standalone: no-op
+      if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
+        JFCustomWidget.setValue(val);
+      }
+    }
 
+    // Simple fetch with JSON parse guard
     async function callValidator(path, payload) {
       const res = await fetch(BASE + path, {
         method: "POST",
@@ -42,35 +91,64 @@
       return { ok: res.ok && data && data.ok === true, data };
     }
 
-    async function validate(raw) {
+    // Debounce to avoid spamming your function on fast typing
+    function debounce(fn, ms) {
+      let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+    }
+
+    async function doValidate(raw) {
       const v = (raw || "").trim();
       if (!v) { setWidgetValue(""); say("Enter a parcel or bill number."); return; }
       say("Validating…");
+
       try {
-        // Try PARCEL first
+        // Try PARCEL first, then BILL
         let r = await callValidator(PARCEL_PATH, { parcel: v });
         if (!r.ok) {
-          // Try BILL
           r = await callValidator(BILL_PATH, { bill: v });
         }
+
         if (r.ok) {
           const normalized = (r.data && r.data.normalized) ? r.data.normalized : v;
-          setWidgetValue(normalized);
-          say("✓ Valid " + ((r.data && r.data.type) ? r.data.type : "number"), "ok");
+          const label = (r.data && r.data.type) ? r.data.type : "number";
+          setWidgetValue(normalized);           // <-- valid: set normalized string
+          say("✓ Valid " + label, "ok");
         } else {
-          setWidgetValue("");
+          setWidgetValue("");                   // <-- invalid: empty so Jotform conditions can block submit
           say("✗ Invalid number", "bad");
         }
-      } catch {
+      } catch (e) {
         setWidgetValue("");
         say("⚠ Error contacting validator", "bad");
       }
     }
 
-    JFCustomWidget.subscribe("ready",  () => setWidgetValue(""));
-    $("num").addEventListener("change", e => validate(e.target.value));
-    $("num").addEventListener("blur",   e => validate(e.target.value));
-    JFCustomWidget.subscribe("submit", () => { JFCustomWidget.sendSubmit(true); });
-  </script>
+    const validate = debounce(doValidate, 300);
+
+    // ========= JOTFORM WIDGET LIFECYCLE =========
+    (function init() {
+      const inJotform = !!(window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function");
+      if (!inJotform) $("standaloneHint").style.display = "block";
+
+      // When the widget loads inside Jotform
+      if (inJotform) {
+        JFCustomWidget.subscribe("ready", function() {
+          // Initialize empty value so "is filled" checks behave
+          setWidgetValue("");
+        });
+
+        // Ensure the latest value is present at submit time
+        JFCustomWidget.subscribe("submit", function() {
+          // Nothing to change; we already set "" or normalized earlier
+          JFCustomWidget.sendSubmit(true);
+        });
+      }
+
+      // Input handlers
+      $("num").addEventListener("change", (e) => validate(e.target.value));
+      $("num").addEventListener("blur",   (e) => validate(e.target.value));
+      $("num").addEventListener("input",  (e) => validate(e.target.value)); // nicer UX while typing
+    })();
+    </script>
 </body>
 </html>
