@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>Parcel/Bill Validator</title>
+    <title>Parcel + Bill Validator</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
         :root {
@@ -13,6 +13,16 @@
             font: 14px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
             margin: 0;
             padding: 10px;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .field {
+            display: block;
         }
 
         label {
@@ -30,8 +40,9 @@
         }
 
         .msg {
-            margin-top: 8px;
-            min-height: 1.25rem;
+            margin-top: 6px;
+            min-height: 1.1rem;
+            font-size: 12px;
         }
 
         .ok {
@@ -45,106 +56,167 @@
         .hint {
             opacity: .8;
             font-size: 12px;
-            margin-top: 4px;
+            margin-top: 8px;
         }
     </style>
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-    <label for="num">Parcel or Bill Number</label>
-    <input id="num" placeholder="Paste parcel or bill number" autocomplete="off" />
-    <div id="m" class="msg">We’ll verify this before you submit.</div>
+    <div class="row">
+        <div class="field">
+            <label for="parcel">Parcel Number</label>
+            <input id="parcel" placeholder="Enter parcel number" autocomplete="off" inputmode="numeric" />
+            <div id="m_parcel" class="msg">We’ll verify this before you submit.</div>
+        </div>
+        <div class="field">
+            <label for="bill">Bill Number</label>
+            <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="numeric" />
+            <div id="m_bill" class="msg">We’ll verify this before you submit.</div>
+        </div>
+    </div>
+
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ===== LIVE ENDPOINTS =====
-    const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
-    const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
-    const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
-    // ===== UI helpers =====
-    const $ = (id) => document.getElementById(id);
-    function say(t, cls = "") {
-      const e = $("m"); if (!e) return;
-      e.className = "msg " + cls;
-      e.textContent = t;
-    }
-    function setVal(v) {
-      if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
-        JFCustomWidget.setValue(v); // "parcel|…" or "bill|…", "" when invalid
-      }
-    }
-    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+  // ===== LIVE ENDPOINTS (unchanged) =====
+  const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
+  const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
+  const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
-    async function getJson(url) {
-      const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
-      let data = null; try { data = await res.json(); } catch {}
-      return { status: res.status, ok: res.ok, data };
+  // ===== Utilities =====
+  const $ = (id) => document.getElementById(id);
+  const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+  function say(whereId, text, cls = "") {
+    const e = $(whereId);
+    if (!e) return;
+    e.className = "msg " + cls;
+    e.textContent = text;
+  }
+
+  async function getJson(url) {
+    const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
+    let data = null; try { data = await res.json(); } catch {}
+    return { status: res.status, ok: res.ok, data };
+  }
+
+  // ===== State we send back to Jotform =====
+  const state = {
+    parcel: "",     // normalized value or ""
+    bill: "",       // normalized value or ""
+    parcelOk: false,
+    billOk: false
+  };
+
+  function pushToJotform() {
+    // Send a single JSON string; Jotform widgets commonly expect a single value
+    if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
+      JFCustomWidget.setValue(JSON.stringify(state));
     }
+  }
 
-    async function validateRaw(raw) {
-      const v = (raw || "").replace(/[^\d]/g, "").trim(); // digits only
-      if (!v) { setVal(""); say("Enter a parcel or bill number."); return; }
-      say("Validating…");
-      try {
-        // 1) Try parcel
-        let r = await getJson(PARCEL_URL(v));
-        if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
-          const n = r.data.normalized || r.data.parcel || v;
-          setVal(`parcel|${n}`); say("✓ Valid parcel", "ok"); return;
-        }
-        // 2) Try bill
-        r = await getJson(BILL_URL(v));
-        if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
-          const n = r.data.normalized || r.data.bill || v;
-          setVal(`bill|${n}`); say("✓ Valid bill", "ok"); return;
-        }
-        setVal(""); say("✗ Invalid number. Please verify and re-enter.", "bad");
-      } catch {
-        setVal(""); say("⚠ Error contacting validator", "bad");
-      }
+  // ===== Validators (independent) =====
+  async function validateParcel(raw) {
+    const val = onlyDigits(raw);
+    if (!val) {
+      state.parcel = ""; state.parcelOk = false; pushToJotform();
+      say("m_parcel", "Enter a parcel number or leave blank if none.");
+      return;
     }
-
-    // ===== Robust, host-agnostic wiring =====
-    (function bootstrap() {
-      if (window.__taxSysValidatorInit) return;
-      window.__taxSysValidatorInit = true;
-
-      // Jotform lifecycle (safe even if not in Jotform)
-      if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function") {
-        JFCustomWidget.subscribe("ready",  () => setVal(""));
-        JFCustomWidget.subscribe("submit", () => JFCustomWidget.sendSubmit(true));
+    say("m_parcel", "Validating parcel…");
+    try {
+      const r = await getJson(PARCEL_URL(val));
+      if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
+        const n = r.data.normalized || r.data.parcel || val;
+        state.parcel = n; state.parcelOk = true; pushToJotform();
+        say("m_parcel", "✓ Valid parcel", "ok");
       } else {
-        const showHint = () => { const hint = $("standaloneHint"); if (hint) hint.style.display = "block"; };
-        if (document.readyState === "loading") {
-          document.addEventListener("DOMContentLoaded", showHint, { once: true });
-        } else {
-          showHint();
-        }
+        state.parcel = ""; state.parcelOk = false; pushToJotform();
+        say("m_parcel", "✗ Invalid parcel number.", "bad");
       }
+    } catch {
+      state.parcel = ""; state.parcelOk = false; pushToJotform();
+      say("m_parcel", "⚠ Error contacting parcel validator.", "bad");
+    }
+  }
 
-      // Debounced validator shared by all events
-      const validate = debounce((val) => validateRaw(val), 250);
-
-      // Listen on document; only act when target is #num. Use capture so blur is caught.
-      const onInputLike = (e) => {
-        const t = e.target;
-        if (t && t.id === "num") validate(t.value);
-      };
-      document.addEventListener("input",  onInputLike, true);
-      document.addEventListener("change", onInputLike, true);
-      document.addEventListener("blur",   onInputLike, true);
-
-      // If field already exists with a value (prefill/paste), run once after paint
-      const runInitial = () => {
-        const el = $("num");
-        if (el && el.value) validate(el.value);
-      };
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", () => { queueMicrotask(runInitial); }, { once: true });
+  async function validateBill(raw) {
+    const val = onlyDigits(raw);
+    if (!val) {
+      state.bill = ""; state.billOk = false; pushToJotform();
+      say("m_bill", "Enter a bill number or leave blank if none.");
+      return;
+    }
+    say("m_bill", "Validating bill…");
+    try {
+      const r = await getJson(BILL_URL(val));
+      if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
+        const n = r.data.normalized || r.data.bill || val;
+        state.bill = n; state.billOk = true; pushToJotform();
+        say("m_bill", "✓ Valid bill", "ok");
       } else {
-        queueMicrotask(runInitial);
+        state.bill = ""; state.billOk = false; pushToJotform();
+        say("m_bill", "✗ Invalid bill number.", "bad");
       }
-    })();
+    } catch {
+      state.bill = ""; state.billOk = false; pushToJotform();
+      say("m_bill", "⚠ Error contacting bill validator.", "bad");
+    }
+  }
+
+  const debouncedParcel = debounce((v) => validateParcel(v), 250);
+  const debouncedBill   = debounce((v) => validateBill(v), 250);
+
+  // ===== Wiring =====
+  (function bootstrap() {
+    if (window.__taxSysValidatorTwoBoxInit) return;
+    window.__taxSysValidatorTwoBoxInit = true;
+
+    // Jotform lifecycle
+    if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function") {
+      JFCustomWidget.subscribe("ready",  () => { state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform(); });
+      // If you want to block submit when both are empty or when any is invalid, change the next line.
+      JFCustomWidget.subscribe("submit", () => {
+        // Example rule: allow submit if at least one is valid OR both are blank (adjust as needed)
+        const allow =
+          (state.parcelOk || state.billOk) ||
+          (!state.parcel && !state.bill);
+        JFCustomWidget.sendSubmit(!!allow);
+      });
+    } else {
+      const showHint = () => { const hint = $("standaloneHint"); if (hint) hint.style.display = "block"; };
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showHint, { once: true });
+      else showHint();
+    }
+
+    // Attach listeners
+    const parcelEl = $("parcel");
+    const billEl = $("bill");
+
+    const onParcelInput = (e) => { if (e && e.target && e.target.id === "parcel") debouncedParcel(e.target.value); };
+    const onBillInput   = (e) => { if (e && e.target && e.target.id === "bill")     debouncedBill(e.target.value);   };
+
+    document.addEventListener("input", onParcelInput, true);
+    document.addEventListener("change", onParcelInput, true);
+    document.addEventListener("blur", onParcelInput, true);
+
+    document.addEventListener("input", onBillInput, true);
+    document.addEventListener("change", onBillInput, true);
+    document.addEventListener("blur", onBillInput, true);
+
+    // Prefill/initial run
+    const runInitial = () => {
+      if (parcelEl && parcelEl.value) debouncedParcel(parcelEl.value);
+      if (billEl && billEl.value)     debouncedBill(billEl.value);
+      pushToJotform();
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => { queueMicrotask(runInitial); }, { once: true });
+    } else {
+      queueMicrotask(runInitial);
+    }
+  })();
     </script>
 </body>
 </html>
