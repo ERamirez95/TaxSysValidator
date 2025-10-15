@@ -83,6 +83,17 @@
   const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
   const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
+  // ===== URL-DRIVEN CONFIG (NEW) =====
+  const params   = new URLSearchParams(location.search);
+  const variant  = (params.get("variant") || "both").toLowerCase();   // "parcel" | "bill" | "both"
+  const requireMode = (params.get("require") || "any").toLowerCase(); // "any" | "both" | "parcel" | "bill" | "none"
+  const labelOverrides = {
+    parcelLabel: params.get("parcelLabel"),
+    billLabel:   params.get("billLabel"),
+    parcelPh:    params.get("parcelPh"),
+    billPh:      params.get("billPh"),
+  };
+
   // ===== Utilities =====
   const $ = (id) => document.getElementById(id);
   const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
@@ -112,7 +123,55 @@
   function pushToJotform() {
     // Send a single JSON string; Jotform widgets commonly expect a single value
     if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
-      JFCustomWidget.setValue(JSON.stringify(state));
+      const payload = {
+        ...state,
+        variant,
+        requireMode
+      };
+      JFCustomWidget.setValue(JSON.stringify(payload));
+    }
+  }
+
+  // ===== Helpers (NEW) =====
+  function applyVariant() {
+    const parcelWrap = document.querySelector('#parcel')?.closest('.field');
+    const billWrap   = document.querySelector('#bill')?.closest('.field');
+
+    if (variant === "parcel") {
+      if (billWrap)   billWrap.style.display = "none";
+      if (parcelWrap) parcelWrap.style.display = "block";
+    } else if (variant === "bill") {
+      if (parcelWrap) parcelWrap.style.display = "none";
+      if (billWrap)   billWrap.style.display = "block";
+    } else { // both
+      if (parcelWrap) parcelWrap.style.display = "block";
+      if (billWrap)   billWrap.style.display = "block";
+    }
+  }
+
+  function computeAllowSubmit() {
+    const anyValid  = state.parcelOk || state.billOk;
+    const bothValid = state.parcelOk && state.billOk;
+    const noneSet   = !state.parcel && !state.bill;
+
+    switch (requireMode) {
+      case "both":
+        // If only one field is rendered, treat its validity as satisfying "both"
+        if (variant === "parcel") return state.parcelOk;
+        if (variant === "bill")   return state.billOk;
+        return bothValid;
+      case "parcel":
+        // If parcel isn't rendered, don't block
+        return variant === "bill" ? true : state.parcelOk;
+      case "bill":
+        // If bill isn't rendered, don't block
+        return variant === "parcel" ? true : state.billOk;
+      case "none":
+        return true; // never block
+      case "any":
+      default:
+        // allow submit if at least one valid OR both blank (keeps your current behavior)
+        return anyValid || noneSet;
     }
   }
 
@@ -157,7 +216,7 @@
         say("m_bill", "✓ Valid bill", "ok");
       } else {
         state.bill = ""; state.billOk = false; pushToJotform();
-        say("m_bill", "✗ Invalid bill number. . Please check and retype again", "bad");
+        say("m_bill", "✗ Invalid bill number. Please check and retype again", "bad");
       }
     } catch {
       state.bill = ""; state.billOk = false; pushToJotform();
@@ -173,15 +232,31 @@
     if (window.__taxSysValidatorTwoBoxInit) return;
     window.__taxSysValidatorTwoBoxInit = true;
 
+    // Attach references
+    const parcelEl = $("parcel");
+    const billEl = $("bill");
+
+    // Apply variant-specific UI and label/placeholder overrides ASAP
+    applyVariant();
+    if (labelOverrides.parcelLabel) {
+      const l = document.querySelector('label[for="parcel"]');
+      if (l) l.textContent = labelOverrides.parcelLabel;
+    }
+    if (labelOverrides.billLabel) {
+      const l = document.querySelector('label[for="bill"]');
+      if (l) l.textContent = labelOverrides.billLabel;
+    }
+    if (labelOverrides.parcelPh && parcelEl) parcelEl.placeholder = labelOverrides.parcelPh;
+    if (labelOverrides.billPh && billEl)     billEl.placeholder   = labelOverrides.billPh;
+
     // Jotform lifecycle
     if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function") {
-      JFCustomWidget.subscribe("ready",  () => { state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform(); });
-      // If you want to block submit when both are empty or when any is invalid, change the next line.
+      JFCustomWidget.subscribe("ready",  () => {
+        state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform();
+      });
+
       JFCustomWidget.subscribe("submit", () => {
-        // Example rule: allow submit if at least one is valid OR both are blank (adjust as needed)
-        const allow =
-          (state.parcelOk || state.billOk) ||
-          (!state.parcel && !state.bill);
+        const allow = computeAllowSubmit();
         JFCustomWidget.sendSubmit(!!allow);
       });
     } else {
@@ -189,10 +264,6 @@
       if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showHint, { once: true });
       else showHint();
     }
-
-    // Attach listeners
-    const parcelEl = $("parcel");
-    const billEl = $("bill");
 
     const onParcelInput = (e) => { if (e && e.target && e.target.id === "parcel") debouncedParcel(e.target.value); };
     const onBillInput   = (e) => { if (e && e.target && e.target.id === "bill")     debouncedBill(e.target.value);   };
