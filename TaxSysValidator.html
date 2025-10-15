@@ -133,7 +133,7 @@
         say("m_parcel", "✓ Valid parcel", "ok");
       } else {
         state.parcel = ""; state.parcelOk = false; pushToJotform();
-        say("m_parcel", "✗ Invalid parcel number.", "bad");
+        say("m_parcel", "✗ Invalid parcel number. Please check and retype again", "bad");
       }
     } catch {
       state.parcel = ""; state.parcelOk = false; pushToJotform();
@@ -157,7 +157,7 @@
         say("m_bill", "✓ Valid bill", "ok");
       } else {
         state.bill = ""; state.billOk = false; pushToJotform();
-        say("m_bill", "✗ Invalid bill number.", "bad");
+        say("m_bill", "✗ Invalid bill number. . Please check and retype again", "bad");
       }
     } catch {
       state.bill = ""; state.billOk = false; pushToJotform();
