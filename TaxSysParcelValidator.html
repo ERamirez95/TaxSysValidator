@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Parcel Validator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        body {
+            font: 14px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+            margin: 0;
+            padding: 10px
+        }
+
+        label {
+            font-weight: 600;
+            display: block;
+            margin: 0 0 6px
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 8px
+        }
+
+        .msg {
+            margin-top: 6px;
+            min-height: 1.1rem;
+            font-size: 12px
+        }
+
+        .ok {
+            color: #156c1e
+        }
+
+        .bad {
+            color: #9f1d1d
+        }
+    </style>
+    <script src="https://js.jotform.com/JFCustomWidget.min.js"></script>
+</head>
+<body>
+    <label for="parcel">Parcel Number</label>
+    <input id="parcel" placeholder="Enter parcel number" inputmode="numeric" autocomplete="off" />
+    <div id="m" class="msg">We’ll verify this before you submit.</div>
+
+    <script>
+    const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
+    const URL  = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
+
+    const $ = (id)=>document.getElementById(id);
+    const digits = (s)=> (s||"").replace(/[^\d]/g,"").trim();
+    const say = (t,c="")=>{ const m=$("m"); m.className="msg "+c; m.textContent=t; };
+    const debounce=(f,ms=250)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>f(...a),ms); }; };
+
+    let normalized = "";   // <- the SINGLE value this widget submits
+    let valid = false;     // <- controls pre-submit block for THIS widget only
+
+    function push(){
+      // Submit value that Zendesk will map
+      JFCustomWidget.setValue(normalized || "");
+      JFCustomWidget.setRequired(false);   // let the FORM-level condition enforce "at least one"
+      JFCustomWidget.setValidity(true);    // don't block submit globally here
+      console.log("[Parcel] setValue:", normalized);
+    }
+
+    async function validate(raw){
+      const v = digits(raw);
+      if (!v){ normalized=""; valid=false; say("Enter a parcel number or leave blank if none."); return push(); }
+      say("Validating parcel…");
+      try{
+        const r = await fetch(URL(v), { method:"GET", mode:"cors", cache:"no-store" });
+        const data = await r.json().catch(()=> ({}));
+        if (r.ok && (data.exists===true || data.ok===true)){
+          normalized = data.normalized || data.parcel || v;
+          valid = true; say("✓ Valid parcel","ok");
+        } else {
+          normalized = ""; valid = false; say("✗ Invalid parcel number.","bad");
+        }
+      } catch {
+        normalized = ""; valid = false; say("⚠ Error contacting validator.","bad");
+      }
+      push();
+    }
+
+    const onInput = debounce(e=>validate(e.target.value), 250);
+
+    // Jotform lifecycle
+    JFCustomWidget.subscribe("ready", ()=> push());
+    JFCustomWidget.subscribe("submit", ()=> {
+      // Do NOT block the entire form here; cross-field rule handled by a form condition
+      JFCustomWidget.sendSubmit(true);
+    });
+
+    $("parcel").addEventListener("input", onInput, true);
+    </script>
+</body>
+</html>
