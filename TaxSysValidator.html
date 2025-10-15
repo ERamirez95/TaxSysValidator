@@ -65,7 +65,8 @@
     <div class="row">
         <div class="field">
             <label for="parcel">Parcel Number</label>
-            <input id="parcel" placeholder="Enter parcel number" autocomplete="off" inputmode="numeric" />
+            <!-- allow letters: use text, not numeric -->
+            <input id="parcel" placeholder="Enter parcel number" autocomplete="off" inputmode="text" />
             <div id="m_parcel" class="msg">We’ll verify this before you submit.</div>
         </div>
         <div class="field">
@@ -85,7 +86,10 @@
 
   // ===== Utilities =====
   const $ = (id) => document.getElementById(id);
-  const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
+  const onlyDigits = (s) => String(s || "").replace(/\D/g, "").trim();
+  const onlyAlnum  = (s) => String(s || "").replace(/[^A-Za-z0-9]/g, "").trim();
+  const isParcelFormat = (s) => /^[A-Za-z0-9]{13}$/.test(s);                    // 13 alnum
+  const isBillFormat   = (s) => /^\d{9}$/.test(s) || /^\d{11}$/.test(s);        // 9 or 11 digits
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
   function say(whereId, text, cls = "") {
@@ -95,10 +99,19 @@
     e.textContent = text;
   }
 
-  async function getJson(url) {
-    const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
-    let data = null; try { data = await res.json(); } catch {}
-    return { status: res.status, ok: res.ok, data };
+  // Abort controllers to cancel stale requests while typing
+  const inflight = { parcel: null, bill: null };
+  async function getJson(url, kind) {
+    if (inflight[kind]) inflight[kind].abort();
+    const ctrl = new AbortController();
+    inflight[kind] = ctrl;
+    try {
+      const res = await fetch(url, { method: "GET", cache: "no-store", signal: ctrl.signal });
+      let data = null; try { data = await res.json(); } catch {}
+      return { status: res.status, ok: res.ok, data };
+    } finally {
+      if (inflight[kind] === ctrl) inflight[kind] = null;
+    }
   }
 
   // ===== State we send back to Jotform =====
@@ -106,11 +119,11 @@
     parcel: "",     // normalized value or ""
     bill: "",       // normalized value or ""
     parcelOk: false,
-    billOk: false
+    billOk: false,
+    message: ""     // cleaned message without extracted numbers
   };
 
   function pushToJotform() {
-    // Send a single JSON string; Jotform widgets commonly expect a single value
     if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
       JFCustomWidget.setValue(JSON.stringify(state));
     }
@@ -118,24 +131,33 @@
 
   // ===== Validators (independent) =====
   async function validateParcel(raw) {
-    const val = onlyDigits(raw);
+    const val = onlyAlnum(raw);
     if (!val) {
       state.parcel = ""; state.parcelOk = false; pushToJotform();
-      say("m_parcel", "Enter a parcel number or leave blank if none.");
+      say("m_parcel", "Enter a 13-character parcel/account number or leave blank if none.");
+      return;
+    }
+    if (!isParcelFormat(val)) {
+      state.parcel = ""; state.parcelOk = false; pushToJotform();
+      say("m_parcel", "That doesn’t look like a parcel number (13 letters/numbers).", "bad");
       return;
     }
     say("m_parcel", "Validating parcel…");
     try {
-      const r = await getJson(PARCEL_URL(val));
+      const r = await getJson(PARCEL_URL(val), "parcel");
       if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
         const n = r.data.normalized || r.data.parcel || val;
         state.parcel = n; state.parcelOk = true; pushToJotform();
         say("m_parcel", "✓ Valid parcel", "ok");
+      } else if (r.status === 404) {
+        state.parcel = ""; state.parcelOk = false; pushToJotform();
+        say("m_parcel", "✗ Invalid parcel number. Please verify and try again.", "bad");
       } else {
         state.parcel = ""; state.parcelOk = false; pushToJotform();
-        say("m_parcel", "✗ Invalid parcel number. Please check and retype again", "bad");
+        say("m_parcel", "Parcel check failed. Please try again later.", "bad");
       }
-    } catch {
+    } catch (e) {
+      if (e.name === "AbortError") return;
       state.parcel = ""; state.parcelOk = false; pushToJotform();
       say("m_parcel", "⚠ Error contacting parcel validator.", "bad");
     }
@@ -145,21 +167,30 @@
     const val = onlyDigits(raw);
     if (!val) {
       state.bill = ""; state.billOk = false; pushToJotform();
-      say("m_bill", "Enter a bill number or leave blank if none.");
+      say("m_bill", "Enter a 9 or 11-digit bill number or leave blank if none.");
+      return;
+    }
+    if (!isBillFormat(val)) {
+      state.bill = ""; state.billOk = false; pushToJotform();
+      say("m_bill", "That doesn’t look like a bill number (9 or 11 digits).", "bad");
       return;
     }
     say("m_bill", "Validating bill…");
     try {
-      const r = await getJson(BILL_URL(val));
+      const r = await getJson(BILL_URL(val), "bill");
       if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
         const n = r.data.normalized || r.data.bill || val;
         state.bill = n; state.billOk = true; pushToJotform();
         say("m_bill", "✓ Valid bill", "ok");
+      } else if (r.status === 404) {
+        state.bill = ""; state.billOk = false; pushToJotform();
+        say("m_bill", "✗ Invalid bill number. Please verify and try again.", "bad");
       } else {
         state.bill = ""; state.billOk = false; pushToJotform();
-        say("m_bill", "✗ Invalid bill number. . Please check and retype again", "bad");
+        say("m_bill", "Bill check failed. Please try again later.", "bad");
       }
-    } catch {
+    } catch (e) {
+      if (e.name === "AbortError") return;
       state.bill = ""; state.billOk = false; pushToJotform();
       say("m_bill", "⚠ Error contacting bill validator.", "bad");
     }
@@ -168,21 +199,102 @@
   const debouncedParcel = debounce((v) => validateParcel(v), 250);
   const debouncedBill   = debounce((v) => validateBill(v), 250);
 
+  // ===== Free-text parser (from the Jotform Message field) =====
+
+  // Find parcel: allow 13 alnum with optional spaces/dashes between chars
+  function findParcel(text) {
+    const s = String(text || "");
+    const re = /(?:[A-Za-z0-9][-\s]?){13}/g;
+    let m; const hits = [];
+    while ((m = re.exec(s)) !== null) {
+      const normalized = m[0].replace(/[^A-Za-z0-9]/g, "");
+      if (normalized.length === 13) hits.push(normalized);
+    }
+    return hits[0] || ""; // change to hits.at(-1) to pick last
+  }
+
+  // Find bill: 11 first (more specific), then 9 digits; separators allowed
+  function findBill(text) {
+    const s = String(text || "");
+    const re11 = /(?:\d[-\s]?){11}(?!\d)/g;
+    const re9  = /(?:\d[-\s]?){9}(?!\d)/g;
+    let m; const hits = [];
+    while ((m = re11.exec(s)) !== null) hits.push(m[0].replace(/\D/g, ""));
+    while ((m = re9.exec(s))  !== null) hits.push(m[0].replace(/\D/g, ""));
+    return hits[0] || "";
+  }
+
+  function extractFromMessage(text) {
+    const parcelCandidate = findParcel(text);
+    const billCandidate   = findBill(text);
+
+    let cleaned = String(text || "");
+    if (parcelCandidate) {
+      const parcelSep = parcelCandidate.split("").join("[-\\s]?");
+      cleaned = cleaned.replace(new RegExp(parcelSep, "i"), "").trim();
+    }
+    if (billCandidate) {
+      const billSep = billCandidate.split("").join("[-\\s]?");
+      cleaned = cleaned.replace(new RegExp(billSep, "i"), "").trim();
+    }
+    return { parcelCandidate, billCandidate, cleanedMessage: cleaned };
+  }
+
+  const handleMessageDebounced = debounce(async (text) => {
+    const { parcelCandidate, billCandidate, cleanedMessage } = extractFromMessage(text);
+
+    const parcelEl = $("parcel");
+    const billEl   = $("bill");
+    let touched = false;
+
+    if (parcelCandidate) {
+      if (parcelEl) parcelEl.value = parcelCandidate;
+      await validateParcel(parcelCandidate);
+      touched = true;
+    }
+    if (billCandidate) {
+      if (billEl) billEl.value = billCandidate;
+      await validateBill(billCandidate);
+      touched = true;
+    }
+
+    state.message = cleanedMessage;
+    pushToJotform();
+
+    if (!touched && !state.parcel && !state.bill) {
+      say("m_parcel", "Enter a parcel number or leave blank if none.");
+      say("m_bill",   "Enter a bill number or leave blank if none.");
+    }
+  }, 250);
+
   // ===== Wiring =====
   (function bootstrap() {
     if (window.__taxSysValidatorTwoBoxInit) return;
     window.__taxSysValidatorTwoBoxInit = true;
 
+    const parcelEl = $("parcel");
+    const billEl   = $("bill");
+
     // Jotform lifecycle
     if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function") {
-      JFCustomWidget.subscribe("ready",  () => { state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform(); });
-      // If you want to block submit when both are empty or when any is invalid, change the next line.
+      JFCustomWidget.subscribe("ready",  () => {
+        // optional: control height to avoid scrollbars
+        if (window.JFCustomWidget.setHeight) JFCustomWidget.setHeight(170);
+        state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; state.message="";
+        pushToJotform();
+      });
+
+      // Receive Message text via Jotform condition (Message -> Widget)
+      JFCustomWidget.subscribe("populate", (msg) => {
+        const text = (msg && (msg.value ?? msg.text ?? msg.data ?? msg.content)) || "";
+        handleMessageDebounced(text);
+      });
+
+      // Submit: allow if at least one is valid OR both blank; return full JSON value
       JFCustomWidget.subscribe("submit", () => {
-        // Example rule: allow submit if at least one is valid OR both are blank (adjust as needed)
-        const allow =
-          (state.parcelOk || state.billOk) ||
-          (!state.parcel && !state.bill);
-        JFCustomWidget.sendSubmit(!!allow);
+        const allow = (state.parcelOk || state.billOk) || (!state.parcel && !state.bill);
+        const payload = JSON.stringify(state);
+        JFCustomWidget.sendSubmit({ valid: !!allow, value: payload });
       });
     } else {
       const showHint = () => { const hint = $("standaloneHint"); if (hint) hint.style.display = "block"; };
@@ -190,25 +302,16 @@
       else showHint();
     }
 
-    // Attach listeners
-    const parcelEl = $("parcel");
-    const billEl = $("bill");
-
-    const onParcelInput = (e) => { if (e && e.target && e.target.id === "parcel") debouncedParcel(e.target.value); };
-    const onBillInput   = (e) => { if (e && e.target && e.target.id === "bill")     debouncedBill(e.target.value);   };
-
-    document.addEventListener("input", onParcelInput, true);
-    document.addEventListener("change", onParcelInput, true);
-    document.addEventListener("blur", onParcelInput, true);
-
-    document.addEventListener("input", onBillInput, true);
-    document.addEventListener("change", onBillInput, true);
-    document.addEventListener("blur", onBillInput, true);
+    // Attach listeners directly to inputs
+    parcelEl?.addEventListener("input", (e) => debouncedParcel(e.target.value));
+    parcelEl?.addEventListener("change", (e) => validateParcel(e.target.value));
+    billEl  ?.addEventListener("input", (e) => debouncedBill(e.target.value));
+    billEl  ?.addEventListener("change", (e) => validateBill(e.target.value));
 
     // Prefill/initial run
     const runInitial = () => {
-      if (parcelEl && parcelEl.value) debouncedParcel(parcelEl.value);
-      if (billEl && billEl.value)     debouncedBill(billEl.value);
+      if (parcelEl?.value) debouncedParcel(parcelEl.value);
+      if (billEl  ?.value) debouncedBill(billEl.value);
       pushToJotform();
     };
     if (document.readyState === "loading") {
