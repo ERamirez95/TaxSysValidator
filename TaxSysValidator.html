@@ -59,11 +59,8 @@
     <script>
     // ===== LIVE ENDPOINTS =====
     const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
-    const PARCEL_URL = (v) =>
-      `${BASE}/api/parcels/${encodeURIComponent(v)}?code=HvcyDqdJg3iCJT-xt4AZ0wtGvJALITMb8JFCwiIYFOmtAzFul9CJrA==`;
-    const BILL_URL = (v) =>
-      `${BASE}/api/bills/${encodeURIComponent(v)}?code=PE97g8PBfTUnpfFBOGi1rlHrW2Ht9alomPv0D7Ub08vWAzFuA0XlPA==`;
-
+    const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
+    const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
     // ===== UI helpers =====
     const $ = (id) => document.getElementById(id);
     function say(t, cls = "") {
