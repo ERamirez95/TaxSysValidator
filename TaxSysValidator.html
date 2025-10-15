@@ -98,7 +98,7 @@
           const n = r.data.normalized || r.data.bill || v;
           setVal(`bill|${n}`); say("✓ Valid bill", "ok"); return;
         }
-        setVal(""); say("✗ Invalid number", "bad");
+        setVal(""); say("✗ Invalid number. Please verify and re-enter.", "bad");
       } catch {
         setVal(""); say("⚠ Error contacting validator", "bad");
       }
