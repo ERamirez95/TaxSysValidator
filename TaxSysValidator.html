@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>Parcel + Bill Validator</title>
+    <title>Parcel + Bill Validator (with Smart Message)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
         :root {
@@ -31,12 +31,14 @@
             font-weight: 600;
         }
 
-        input {
+        input, textarea {
             width: 100%;
             padding: 8px;
             box-sizing: border-box;
             border: 1px solid #ccc;
             border-radius: 8px;
+            resize: vertical;
+            min-height: 88px;
         }
 
         .msg {
@@ -58,11 +60,16 @@
             font-size: 12px;
             margin-top: 8px;
         }
+
+        .hidden {
+            display: none !important;
+        }
     </style>
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-    <div class="row">
+    <!-- UI: parcel/bill inputs (existing) -->
+    <div id="pbWrap" class="row">
         <div class="field">
             <label for="parcel" id="label_parcel">Parcel Number</label>
             <input id="parcel" placeholder="Enter parcel number" autocomplete="off" inputmode="numeric" />
@@ -75,15 +82,28 @@
         </div>
     </div>
 
+    <!-- UI: smart message variant -->
+    <div id="msgWrap" class="field hidden">
+        <label for="freeText" id="label_message">Enter your message</label>
+        <textarea id="freeText" placeholder='Type here (e.g., ' +
+                  '"Please check parcel 3132201260000 and bill 20150806261")'></textarea>
+        <div id="m_message" class="msg">We’ll auto-detect parcel/bill numbers and fill the form.</div>
+    </div>
+
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ---- endpoints ----
+    // ======== CONFIG YOU MAY EDIT ========
+    // Unique Names of your native Jotform fields to populate:
+    const UNIQUE_PARCEL = "parcel_number";
+    const UNIQUE_BILL   = "bill_number";
+
+    // API endpoints:
     const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
     const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
     const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
-    // ---- utils ----
+    // ======== UTILS ========
     const $ = (id) => document.getElementById(id);
     const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
@@ -91,54 +111,74 @@
     const say = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "msg "+cls; e.textContent = txt; };
     async function getJson(url){ const res=await fetch(url,{method:"GET",mode:"cors",cache:"no-store"}); let data=null; try{data=await res.json();}catch{} return {ok:res.ok,status:res.status,data}; }
 
-    // ---- config ----
+    // Simple extractors (tune lengths to your rules)
+    function extractFirstParcel(s){
+      const matches = (s.match(/\b\d{10,15}\b/g) || []).map(onlyDigits);
+      return matches[0] || "";
+    }
+    function extractFirstBill(s){
+      const matches = (s.match(/\b\d{8,15}\b/g) || []).map(onlyDigits);
+      return matches[0] || "";
+    }
+
+    // Populate native fields in parent form via postMessage
+    function populateFormField(uniqueName, value) {
+      try {
+        window.parent.postMessage({ action: "populate", field: uniqueName, value: value || "" }, "*");
+      } catch {}
+    }
+
+    // ======== URL CONFIG ========
     const params      = new URLSearchParams(location.search);
-    const variant     = (params.get("variant") || "both").toLowerCase();   // parcel|bill|both
-    const requireMode = (params.get("require") || "any").toLowerCase();    // any|both|parcel|bill|none
+    const variant     = (params.get("variant") || "both").toLowerCase();   // "parcel" | "bill" | "both" | "message"
+    const requireMode = (params.get("require") || "any").toLowerCase();    // "any" | "both" | "parcel" | "bill" | "none"
     const labelOverrides = {
       parcelLabel: safeDecode(params.get("parcelLabel")),
       billLabel:   safeDecode(params.get("billLabel")),
       parcelPh:    safeDecode(params.get("parcelPh")),
-      billPh:      safeDecode(params.get("billPh"))
+      billPh:      safeDecode(params.get("billPh")),
+      messageLabel:safeDecode(params.get("messageLabel")),
+      messagePh:   safeDecode(params.get("messagePh")),
     };
 
-    // ---- state ----
-    const state = { parcel:"", bill:"", parcelOk:false, billOk:false };
+    // ======== STATE ========
+    const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message: "" };
 
-    // ---- JF helpers (modern + legacy) ----
+    // Modern + legacy live value signals to Jotform
     function sendLive(valueStr){
       if(!window.JFCustomWidget) return;
-      // modern
       try { JFCustomWidget.setValue(valueStr); } catch {}
-      // legacy live ping (per Jotform dev note)
       try { JFCustomWidget.sendData({ valid: true, value: valueStr }); } catch {}
-      // nudge height so host processes messages immediately
-      try { JFCustomWidget.setHeight(document.body.scrollHeight || 120); } catch {}
+      try { JFCustomWidget.setHeight(document.body.scrollHeight || 160); } catch {}
     }
     function sendSubmitValue(valueStr){
       if(!window.JFCustomWidget) return;
-      // include value in submit payload as the dev suggests
       try { JFCustomWidget.sendSubmit({ valid: true, value: valueStr }); return; } catch {}
-      // fallback to boolean if host expects it
       try { JFCustomWidget.sendSubmit(true); } catch {}
     }
     function currentString(){
       if (variant === "parcel") return state.parcel || "";
       if (variant === "bill")   return state.bill   || "";
-      // both → keep compact JSON string
+      if (variant === "message") return JSON.stringify({ message: state.message, parcel: state.parcel, bill: state.bill });
+      // "both"
       return JSON.stringify({ ...state, variant, requireMode });
     }
 
-    // ---- variant ui ----
-    function applyVariant(){
-      const parcelWrap = document.querySelector('#parcel')?.closest('.field');
-      const billWrap   = document.querySelector('#bill')?.closest('.field');
-      if(variant==="parcel"){ if(billWrap) billWrap.style.display="none"; if(parcelWrap) parcelWrap.style.display="block"; }
-      else if(variant==="bill"){ if(parcelWrap) parcelWrap.style.display="none"; if(billWrap) billWrap.style.display="block"; }
-      else { if(parcelWrap) parcelWrap.style.display="block"; if(billWrap) billWrap.style.display="block"; }
+    // ======== UI TOGGLING ========
+    function applyVariantUI(){
+      const pb = $("pbWrap"), msg = $("msgWrap");
+      if (variant === "message"){
+        if (pb)  pb.classList.add("hidden");
+        if (msg) msg.classList.remove("hidden");
+      } else {
+        if (msg) msg.classList.add("hidden");
+        if (pb)  pb.classList.remove("hidden");
+        if (variant === "parcel"){ const bill = $("bill")?.closest(".field"); if (bill) bill.classList.add("hidden"); }
+        if (variant === "bill"){ const parcel = $("parcel")?.closest(".field"); if (parcel) parcel.classList.add("hidden"); }
+      }
     }
 
-    // ---- validators ----
+    // ======== VALIDATORS ========
     async function validateParcel(raw){
       const val = onlyDigits(raw);
       if(!val){ state.parcel=""; state.parcelOk=false; sendLive(currentString()); say("m_parcel","Enter a parcel number or leave blank if none."); return; }
@@ -148,10 +188,11 @@
         if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
           state.parcel = r.data.normalized || r.data.parcel || val;
           state.parcelOk = true;
+          populateFormField(UNIQUE_PARCEL, state.parcel);
           sendLive(currentString());
           say("m_parcel","✓ Valid parcel","ok");
         } else {
-          state.parcel=""; state.parcelOk=false; sendLive(currentString());
+          state.parcel=""; state.parcelOk=false; populateFormField(UNIQUE_PARCEL,""); sendLive(currentString());
           say("m_parcel","✗ Invalid parcel number. Please check and retype again","bad");
         }
       }catch{
@@ -168,10 +209,11 @@
         if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
           state.bill = r.data.normalized || r.data.bill || val;
           state.billOk = true;
+          populateFormField(UNIQUE_BILL, state.bill);
           sendLive(currentString());
           say("m_bill","✓ Valid bill","ok");
         } else {
-          state.bill=""; state.billOk=false; sendLive(currentString());
+          state.bill=""; state.billOk=false; populateFormField(UNIQUE_BILL,""); sendLive(currentString());
           say("m_bill","✗ Invalid bill number. Please check and retype again","bad");
         }
       }catch{
@@ -180,43 +222,69 @@
       }
     }
 
+    // Debounced API checks
     const debouncedParcel = debounce((v)=>validateParcel(v), 250);
     const debouncedBill   = debounce((v)=>validateBill(v),   250);
 
-    // ---- bootstrap ----
+    // ======== MESSAGE VARIANT HANDLER ========
+    async function onMessageInput(rawText){
+      state.message = rawText || "";
+
+      // extract first candidates
+      const candParcel = extractFirstParcel(rawText);
+      const candBill   = extractFirstBill(rawText);
+
+      // optimistic populate (immediate feedback)
+      if (candParcel) { state.parcel = candParcel; populateFormField(UNIQUE_PARCEL, state.parcel); }
+      if (candBill)   { state.bill   = candBill;   populateFormField(UNIQUE_BILL,   state.bill);   }
+
+      // push live value for Conditions/Webhooks
+      sendLive(currentString());
+
+      // async validate & normalize
+      if (candParcel) { debouncedParcel(candParcel); }
+      if (candBill)   { debouncedBill(candBill); }
+    }
+
+    // ======== BOOTSTRAP ========
     (function init(){
-      const parcelEl = $("parcel");
-      const billEl   = $("bill");
+      applyVariantUI();
 
-      applyVariant();
-      if(labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l) l.textContent=labelOverrides.parcelLabel; }
-      if(labelOverrides.billLabel){   const l=$("label_bill");   if(l) l.textContent=labelOverrides.billLabel; }
-      if(labelOverrides.parcelPh && parcelEl) parcelEl.placeholder=labelOverrides.parcelPh;
-      if(labelOverrides.billPh && billEl)     billEl.placeholder  =labelOverrides.billPh;
+      // label/placeholder overrides
+      if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l) l.textContent=labelOverrides.parcelLabel; }
+      if (labelOverrides.billLabel){   const l=$("label_bill");   if(l) l.textContent=labelOverrides.billLabel; }
+      if (labelOverrides.messageLabel){ const l=$("label_message"); if(l) l.textContent=labelOverrides.messageLabel; }
+      if (labelOverrides.parcelPh && $("parcel")) $("parcel").placeholder = labelOverrides.parcelPh;
+      if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
+      if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
 
-      // listeners: push live string immediately, validate async
-      const onParcelInput=(e)=>{ if(e?.target?.id!=="parcel") return; state.parcel=onlyDigits(e.target.value); sendLive(currentString()); debouncedParcel(e.target.value); };
-      const onBillInput  =(e)=>{ if(e?.target?.id!=="bill")   return; state.bill  =onlyDigits(e.target.value); sendLive(currentString()); debouncedBill(e.target.value); };
+      // listeners
+      const onParcelInput=(e)=>{ if(e?.target?.id!=="parcel") return;
+        state.parcel=onlyDigits(e.target.value); sendLive(currentString()); debouncedParcel(e.target.value);
+      };
+      const onBillInput  =(e)=>{ if(e?.target?.id!=="bill") return;
+        state.bill=onlyDigits(e.target.value); sendLive(currentString()); debouncedBill(e.target.value);
+      };
+      const onMsgInput   =(e)=>{ if(e?.target?.id!=="freeText") return; onMessageInput(e.target.value); };
+
       document.addEventListener("input",  onParcelInput, true);
       document.addEventListener("change", onParcelInput, true);
       document.addEventListener("input",  onBillInput,   true);
       document.addEventListener("change", onBillInput,   true);
+      document.addEventListener("input",  onMsgInput,    true);
+      document.addEventListener("change", onMsgInput,    true);
 
+      // JF lifecycle
       if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
-        // per Jotform dev: do everything after ready
         JFCustomWidget.subscribe("ready", () => {
-          state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false;
-          // initialize with empty value so Conditions know the field exists
+          state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; state.message="";
           sendLive(currentString());
-          try { JFCustomWidget.setHeight(document.body.scrollHeight || 120); } catch {}
         });
-
-        // include value in submit payload, never block
         JFCustomWidget.subscribe("submit", () => {
-          // collapse any pending keystroke
-          const pEl = $("parcel"), bEl = $("bill");
-          if (pEl) state.parcel = onlyDigits(pEl.value);
-          if (bEl) state.bill   = onlyDigits(bEl.value);
+          // finalize strings & always allow submit
+          if ($("parcel")) state.parcel = onlyDigits($("parcel").value);
+          if ($("bill"))   state.bill   = onlyDigits($("bill").value);
+          if ($("freeText")) state.message = $("freeText").value || "";
           sendSubmitValue(currentString());
         });
       } else {
