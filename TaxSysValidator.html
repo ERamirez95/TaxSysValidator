@@ -77,7 +77,7 @@
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-    <!-- Existing parcel/bill UI (for variants parcel/bill/both) -->
+    <!-- Existing parcel/bill UI (parcel/bill/both variants) -->
     <div id="pbWrap" class="row">
         <div class="field" id="parcelField">
             <label for="parcel" id="label_parcel">Parcel Number</label>
@@ -103,9 +103,13 @@
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ======== EDIT THESE IF YOUR UNIQUE NAMES DIFFER ========
+    // ======== CONFIG (edit if your Unique Names differ) ========
     const UNIQUE_PARCEL = "parcel_number"; // native Short Text unique name
     const UNIQUE_BILL   = "bill_number";   // native Short Text unique name
+
+    // Strict lengths (adjust to your real formats)
+    const PARCEL_LEN = 13;
+    const BILL_LEN   = 11;
 
     // ======== ENDPOINTS ========
     const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
@@ -121,16 +125,14 @@
     const sayLine = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "substatus "+(cls||""); e.textContent = txt; };
     async function getJson(url){ const res=await fetch(url,{method:"GET",mode:"cors",cache:"no-store"}); let data=null; try{data=await res.json();}catch{} return {ok:res.ok,status:res.status,data}; }
 
-    // Extractors (tune lengths/regex for your true formats)
+    // Strict extractors
     function extractFirstParcel(s){
-      // example: 13-digit parcel, loosened to 10–15 for safety
-      const m = (s.match(/\b\d{10,15}\b/g) || []).map(onlyDigits);
-      return m[0] || "";
+      const m = s.match(new RegExp(`\\b\\d{${PARCEL_LEN}}\\b`, 'g')) || [];
+      return (m[0] || "").replace(/[^\d]/g, "");
     }
     function extractFirstBill(s){
-      // example: 11-digit bill, loosened to 8–15
-      const m = (s.match(/\b\d{8,15}\b/g) || []).map(onlyDigits);
-      return m[0] || "";
+      const m = s.match(new RegExp(`\\b\\d{${BILL_LEN}}\\b`, 'g')) || [];
+      return (m[0] || "").replace(/[^\d]/g, "");
     }
 
     // Mirror into native fields
@@ -155,6 +157,8 @@
 
     // ======== STATE ========
     const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
+    let lastCheckedParcel = "";
+    let lastCheckedBill   = "";
 
     // ======== JF SIGNALS (modern + legacy) ========
     function sendLive(valueStr){
@@ -179,19 +183,22 @@
     function applyVariantUI(){
       const pb = $("pbWrap"), msg = $("msgWrap");
       if (variant === "message"){
-        if (pb)  pb.classList.add("hidden");
-        if (msg) msg.classList.remove("hidden");
+        pb?.classList.add("hidden");
+        msg?.classList.remove("hidden");
       } else {
-        if (msg) msg.classList.add("hidden");
-        if (pb)  pb.classList.remove("hidden");
-        if (variant === "parcel"){ $("billField")?.classList.add("hidden"); }
-        if (variant === "bill"){   $("parcelField")?.classList.add("hidden"); }
+        msg?.classList.add("hidden");
+        pb?.classList.remove("hidden");
+        if (variant === "parcel") $("billField")?.classList.add("hidden");
+        if (variant === "bill")   $("parcelField")?.classList.add("hidden");
       }
     }
 
-    // ======== VALIDATORS (also update message-variant status lines) ========
+    // ======== VALIDATORS ========
     async function validateParcel(raw, {alsoMsg=false} = {}){
       const val = onlyDigits(raw);
+      if (val === lastCheckedParcel) return;
+      lastCheckedParcel = val;
+
       if(!val){
         state.parcel=""; state.parcelOk=false;
         sendLive(currentString());
@@ -227,6 +234,9 @@
 
     async function validateBill(raw, {alsoMsg=false} = {}){
       const val = onlyDigits(raw);
+      if (val === lastCheckedBill) return;
+      lastCheckedBill = val;
+
       if(!val){
         state.bill=""; state.billOk=false;
         sendLive(currentString());
@@ -267,28 +277,33 @@
     function onMessageInput(rawText){
       state.message = rawText || "";
 
-      // Find first candidates
-      const candParcel = extractFirstParcel(rawText);
-      const candBill   = extractFirstBill(rawText);
+      // strict extraction
+      let candParcel = extractFirstParcel(rawText);
+      let candBill   = extractFirstBill(rawText);
 
-      // Show immediate detection lines
-      if (candParcel) { sayLine("m_msg_parcel", `Detected parcel: ${candParcel}`,""); }
-      else            { sayLine("m_msg_parcel", `No parcel detected.`,""); }
-      if (candBill)   { sayLine("m_msg_bill",   `Detected bill: ${candBill}`,""); }
-      else            { sayLine("m_msg_bill",   `No bill detected.`,""); }
+      // de-dupe safeguard (shouldn't trigger with strict lengths)
+      if (candParcel && candBill && candParcel === candBill) {
+        if (candParcel.length === PARCEL_LEN && candBill.length !== BILL_LEN) candBill = "";
+        else if (candBill.length === BILL_LEN && candParcel.length !== PARCEL_LEN) candParcel = "";
+        else candBill = "";
+      }
 
-      // Mirror immediately so native fields fill as the user types
-      if (candParcel) { state.parcel = candParcel; populateFormField(UNIQUE_PARCEL, state.parcel); }
-      else            { state.parcel = "";         populateFormField(UNIQUE_PARCEL, ""); }
-      if (candBill)   { state.bill   = candBill;   populateFormField(UNIQUE_BILL,   state.bill); }
-      else            { state.bill   = "";         populateFormField(UNIQUE_BILL,   ""); }
+      // status lines
+      sayLine("m_msg_parcel", candParcel ? `Detected parcel: ${candParcel}` : "No parcel detected.", "");
+      sayLine("m_msg_bill",   candBill   ? `Detected bill: ${candBill}`     : "No bill detected.",   "");
 
-      // Push live value (so Conditions/Webhooks see it)
+      // mirror immediately
+      state.parcel = candParcel || "";
+      state.bill   = candBill   || "";
+      populateFormField(UNIQUE_PARCEL, state.parcel);
+      populateFormField(UNIQUE_BILL,   state.bill);
+
+      // push live value
       sendLive(currentString());
 
-      // Debounced validation hits your endpoints and updates status lines
-      if (candParcel) debouncedParcel(candParcel); else sayLine("m_msg_parcel","No parcel detected.","");
-      if (candBill)   debouncedBill(candBill);     else sayLine("m_msg_bill","No bill detected.","");
+      // debounced validation → hits correct endpoints now
+      if (state.parcel) debouncedParcel(state.parcel); else sayLine("m_msg_parcel","No parcel detected.","");
+      if (state.bill)   debouncedBill(state.bill);     else sayLine("m_msg_bill","No bill detected.","");
     }
 
     // ======== BOOTSTRAP ========
@@ -322,7 +337,6 @@
           sendLive(currentString());
         });
         JFCustomWidget.subscribe("submit", () => {
-          // finalize current text & ids, then always allow submit
           if ($("freeText")) state.message = $("freeText").value || "";
           if ($("parcel"))   state.parcel  = onlyDigits($("parcel").value);
           if ($("bill"))     state.bill    = onlyDigits($("bill").value);
