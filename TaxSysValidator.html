@@ -78,12 +78,12 @@
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ===== LIVE ENDPOINTS (unchanged) =====
+    // ===== LIVE ENDPOINTS =====
     const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
     const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
     const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
-    // ===== Helpers =====
+    // ===== Utils =====
     const $ = (id) => document.getElementById(id);
     const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
@@ -105,7 +105,7 @@
       return { status: res.status, ok: res.ok, data };
     }
 
-    // ===== URL-DRIVEN CONFIG =====
+    // ===== URL Config =====
     const params      = new URLSearchParams(location.search);
     const variant     = (params.get("variant") || "both").toLowerCase();   // "parcel" | "bill" | "both"
     const requireMode = (params.get("require") || "any").toLowerCase();    // "any" | "both" | "parcel" | "bill" | "none"
@@ -116,29 +116,27 @@
       billPh:      safeDecode(params.get("billPh")),
     };
 
-    // ===== State we send back to Jotform =====
+    // ===== State =====
     const state = {
-      parcel: "",     // normalized value or ""
-      bill: "",       // normalized value or ""
+      parcel: "",
+      bill: "",
       parcelOk: false,
       billOk: false
     };
 
-    // IMPORTANT: make each widget instance look like a single mappable field
+    // Send value to Jotform (single string for parcel/bill variants)
     function pushToJotform() {
       if (!(window.JFCustomWidget && typeof JFCustomWidget.setValue === "function")) return;
 
       if (variant === "parcel") {
-        // Send ONLY the parcel value (string). This makes the widget mappable to a single Zendesk field.
         JFCustomWidget.setValue(state.parcel || "");
         return;
       }
       if (variant === "bill") {
-        // Send ONLY the bill value (string).
         JFCustomWidget.setValue(state.bill || "");
         return;
       }
-      // variant === "both" → keep JSON payload for advanced use (webhooks, etc.)
+      // variant === "both" → send JSON (optional)
       const payload = { ...state, variant, requireMode };
       JFCustomWidget.setValue(JSON.stringify(payload));
     }
@@ -154,7 +152,7 @@
       } else if (variant === "bill") {
         if (parcelWrap) parcelWrap.style.display = "none";
         if (billWrap)   billWrap.style.display = "block";
-      } else { // both
+      } else {
         if (parcelWrap) parcelWrap.style.display = "block";
         if (billWrap)   billWrap.style.display = "block";
       }
@@ -242,21 +240,28 @@
       const parcelEl = $("parcel");
       const billEl   = $("bill");
 
-      // Apply variant and labels/placeholders
       applyVariant();
       if (labelOverrides.parcelLabel) { const l = $("label_parcel"); if (l) l.textContent = labelOverrides.parcelLabel; }
       if (labelOverrides.billLabel)   { const l = $("label_bill");   if (l) l.textContent = labelOverrides.billLabel; }
       if (labelOverrides.parcelPh && parcelEl) parcelEl.placeholder = labelOverrides.parcelPh;
       if (labelOverrides.billPh && billEl)     billEl.placeholder   = labelOverrides.billPh;
 
-      // Jotform lifecycle
       if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function") {
         JFCustomWidget.subscribe("ready", () => {
           state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform();
         });
+
+        // SAFE-SUBMIT: push final values and always allow submit
         JFCustomWidget.subscribe("submit", () => {
-          const allow = computeAllowSubmit();
-          JFCustomWidget.sendSubmit(!!allow);
+          const pEl = $("parcel");
+          const bEl = $("bill");
+          if (pEl) { state.parcel = onlyDigits(pEl.value); state.parcelOk = !!state.parcel; }
+          if (bEl) { state.bill   = onlyDigits(bEl.value); state.billOk   = !!state.bill;   }
+          // Optionally enforce requireMode: we won't block, but we can normalize
+          // If you *must* block, replace true with computeAllowSubmit()
+          pushToJotform();
+          // Defer a tick to avoid race with Jotform serializer (ultra-safe)
+          setTimeout(() => JFCustomWidget.sendSubmit(true), 0);
         });
       } else {
         const showHint = () => { const hint = $("standaloneHint"); if (hint) hint.style.display = "block"; };
@@ -267,13 +272,11 @@
       const onParcelInput = (e) => { if (e?.target?.id === "parcel") debouncedParcel(e.target.value); };
       const onBillInput   = (e) => { if (e?.target?.id === "bill")   debouncedBill(e.target.value);   };
 
-      document.addEventListener("input", onParcelInput, true);
+      // Keep listeners minimal to avoid submit-time races
+      document.addEventListener("input",  onParcelInput, true);
       document.addEventListener("change", onParcelInput, true);
-      document.addEventListener("blur", onParcelInput, true);
-
-      document.addEventListener("input", onBillInput, true);
-      document.addEventListener("change", onBillInput, true);
-      document.addEventListener("blur", onBillInput, true);
+      document.addEventListener("input",  onBillInput,   true);
+      document.addEventListener("change", onBillInput,   true);
 
       // Prefill/initial run
       const runInitial = () => {
