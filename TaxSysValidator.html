@@ -103,9 +103,9 @@
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ======== CONFIG (edit if your Unique Names differ) ========
-    const UNIQUE_PARCEL = "typeA32"; // native Short Text unique name
-    const UNIQUE_BILL   = "billNumber";   // native Short Text unique name
+    // ======== CONFIG (display-only labels; NOT used to write into other fields) ========
+    const UNIQUE_PARCEL = "typeA32";     // your native Parcel field unique name
+    const UNIQUE_BILL   = "billNumber";  // your native Bill field unique name
 
     // Strict lengths (adjust to your real formats)
     const PARCEL_LEN = 13;
@@ -135,13 +135,6 @@
       return (m[0] || "").replace(/[^\d]/g, "");
     }
 
-    // Mirror into native fields
-    function populateFormField(uniqueName, value) {
-      try {
-        window.parent.postMessage({ action: "populate", field: uniqueName, value: value || "" }, "*");
-      } catch {}
-    }
-
     // ======== QUERY PARAMS ========
     const params      = new URLSearchParams(location.search);
     const variant     = (params.get("variant") || "both").toLowerCase();   // parcel | bill | both | message
@@ -164,19 +157,18 @@
     let prevParcelCandidate = null;
     let prevBillCandidate   = null;
 
-    // ======== JF SIGNALS (modern + legacy) ========
-    function sendLive(valueStr){
+    // ======== EMIT VALUE TO JOTFORM (the key change) ========
+    // Live value becomes: "P:<parcel>|B:<bill>"
+    function emitWidgetValue(){
+      const pipe = `P:${state.parcel || ""}|B:${state.bill || ""}`;
       if(!window.JFCustomWidget) return;
-      try { JFCustomWidget.setValue(valueStr); } catch {}
-      try { JFCustomWidget.sendData({ valid: true, value: valueStr }); } catch {}
+      try { JFCustomWidget.setValue(pipe); } catch {}
+      try { JFCustomWidget.sendData({ valid: true, value: pipe }); } catch {}
       try { JFCustomWidget.setHeight(document.body.scrollHeight || 180); } catch {}
     }
-    function sendSubmitValue(valueStr){
-      if(!window.JFCustomWidget) return;
-      try { JFCustomWidget.sendSubmit({ valid: true, value: valueStr }); return; } catch {}
-      try { JFCustomWidget.sendSubmit(true); } catch {}
-    }
-    function currentString(){
+
+    // JSON string for submit (kept for integrations/records)
+    function currentJson(){
       if (variant === "parcel")   return state.parcel || "";
       if (variant === "bill")     return state.bill   || "";
       if (variant === "message")  return JSON.stringify({ message: state.message, parcel: state.parcel, bill: state.bill });
@@ -203,13 +195,12 @@
 
       if(!val){
         state.parcel=""; state.parcelOk=false;
-        sendLive(currentString());
+        emitWidgetValue();
         say("m_parcel","Enter a parcel number or leave blank if none.");
         if (alsoMsg) sayLine("m_msg_parcel","No parcel detected.","");
         return;
       }
 
-      // de-dupe: only if same as last checked AND candidate hasn't changed
       if (val === lastCheckedParcel && prevParcelCandidate === val) return;
       lastCheckedParcel = val;
 
@@ -220,20 +211,18 @@
         if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
           state.parcel = r.data.normalized || r.data.parcel || val;
           state.parcelOk = true;
-          populateFormField(UNIQUE_PARCEL, state.parcel);
-          sendLive(currentString());
+          emitWidgetValue();
           say("m_parcel","✓ Valid parcel","ok");
           if (alsoMsg) sayLine("m_msg_parcel",`✓ Parcel ${state.parcel} is valid`,"ok");
         } else {
           state.parcel=""; state.parcelOk=false;
-          populateFormField(UNIQUE_PARCEL,"");
-          sendLive(currentString());
+          emitWidgetValue();
           say("m_parcel","✗ Invalid parcel number. Please check and retype again","bad");
           if (alsoMsg) sayLine("m_msg_parcel","✗ Parcel is invalid","bad");
         }
       }catch{
         state.parcel=""; state.parcelOk=false;
-        sendLive(currentString());
+        emitWidgetValue();
         say("m_parcel","⚠ Error contacting parcel validator.","bad");
         if (alsoMsg) sayLine("m_msg_parcel","⚠ Error contacting parcel validator","bad");
       }
@@ -244,7 +233,7 @@
 
       if(!val){
         state.bill=""; state.billOk=false;
-        sendLive(currentString());
+        emitWidgetValue();
         say("m_bill","Enter a bill number or leave blank if none.");
         if (alsoMsg) sayLine("m_msg_bill","No bill detected.","");
         return;
@@ -260,20 +249,18 @@
         if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
           state.bill = r.data.normalized || r.data.bill || val;
           state.billOk = true;
-          populateFormField(UNIQUE_BILL, state.bill);
-          sendLive(currentString());
+          emitWidgetValue();
           say("m_bill","✓ Valid bill","ok");
           if (alsoMsg) sayLine("m_msg_bill",`✓ Bill ${state.bill} is valid`,"ok");
         } else {
           state.bill=""; state.billOk=false;
-          populateFormField(UNIQUE_BILL,"");
-          sendLive(currentString());
+          emitWidgetValue();
           say("m_bill","✗ Invalid bill number. Please check and retype again","bad");
           if (alsoMsg) sayLine("m_msg_bill","✗ Bill is invalid","bad");
         }
       }catch{
         state.bill=""; state.billOk=false;
-        sendLive(currentString());
+        emitWidgetValue();
         say("m_bill","⚠ Error contacting bill validator.","bad");
         if (alsoMsg) sayLine("m_msg_bill","⚠ Error contacting bill validator","bad");
       }
@@ -290,7 +277,7 @@
       let candParcel = extractFirstParcel(rawText);
       let candBill   = extractFirstBill(rawText);
 
-      // (lengths are distinct; keep a safeguard anyway)
+      // safeguard (lengths are distinct)
       if (candParcel && candBill && candParcel === candBill) {
         if (candParcel.length === PARCEL_LEN && candBill.length !== BILL_LEN) candBill = "";
         else if (candBill.length === BILL_LEN && candParcel.length !== PARCEL_LEN) candParcel = "";
@@ -301,7 +288,7 @@
       if (candParcel !== prevParcelCandidate) {
         if (candParcel) sayLine("m_msg_parcel","Validating parcel…","");
         else            sayLine("m_msg_parcel","No parcel detected.","");
-        lastCheckedParcel = null;             // allow re-validate
+        lastCheckedParcel = null;
       }
       if (candBill !== prevBillCandidate) {
         if (candBill)   sayLine("m_msg_bill","Validating bill…","");
@@ -311,14 +298,10 @@
       prevParcelCandidate = candParcel || null;
       prevBillCandidate   = candBill   || null;
 
-      // mirror immediately
+      // update state + emit tagged value
       state.parcel = candParcel || "";
       state.bill   = candBill   || "";
-      populateFormField(UNIQUE_PARCEL, state.parcel);
-      populateFormField(UNIQUE_BILL,   state.bill);
-
-      // push live value
-      sendLive(currentString());
+      emitWidgetValue();
 
       // debounced validation → hits correct endpoints
       if (state.parcel) debouncedParcel(state.parcel);
@@ -338,8 +321,8 @@
       if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
 
       // Listeners
-      const onParcelInput=(e)=>{ if(e?.target?.id!=="parcel") return; state.parcel=onlyDigits(e.target.value); sendLive(currentString()); debouncedParcel(e.target.value); };
-      const onBillInput  =(e)=>{ if(e?.target?.id!=="bill")   return; state.bill  =onlyDigits(e.target.value); sendLive(currentString()); debouncedBill(e.target.value); };
+      const onParcelInput=(e)=>{ if(e?.target?.id!=="parcel") return; state.parcel=onlyDigits(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); };
+      const onBillInput  =(e)=>{ if(e?.target?.id!=="bill")   return; state.bill  =onlyDigits(e.target.value); emitWidgetValue(); debouncedBill(e.target.value); };
       const onMsgInput   =(e)=>{ if(e?.target?.id!=="freeText") return; onMessageInput(e.target.value); };
 
       document.addEventListener("input",  onParcelInput, true);
@@ -353,13 +336,17 @@
       if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
         JFCustomWidget.subscribe("ready", () => {
           state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; state.message="";
-          sendLive(currentString());
+          emitWidgetValue();
         });
         JFCustomWidget.subscribe("submit", () => {
           if ($("freeText")) state.message = $("freeText").value || "";
           if ($("parcel"))   state.parcel  = onlyDigits($("parcel").value);
           if ($("bill"))     state.bill    = onlyDigits($("bill").value);
-          sendSubmitValue(currentString());
+          // Submit JSON payload; Conditions will have used the live tagged string already
+          if (window.JFCustomWidget) {
+            try { JFCustomWidget.sendSubmit({ valid: true, value: currentJson() }); return; } catch {}
+            try { JFCustomWidget.sendSubmit(true); } catch {}
+          }
         });
       } else {
         const showHint=()=>{ const hint=$("standaloneHint"); if(hint) hint.style.display="block"; };
