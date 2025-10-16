@@ -77,7 +77,7 @@
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-    <!-- Existing parcel/bill UI (parcel/bill/both variants) -->
+    <!-- Parcel/Bill UI (for parcel/bill/both variants) -->
     <div id="pbWrap" class="row">
         <div class="field" id="parcelField">
             <label for="parcel" id="label_parcel">Parcel Number</label>
@@ -157,8 +157,12 @@
 
     // ======== STATE ========
     const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
-    let lastCheckedParcel = "";
-    let lastCheckedBill   = "";
+
+    // De-dupe + candidate tracking (so we keep status until number changes)
+    let lastCheckedParcel = null;
+    let lastCheckedBill   = null;
+    let prevParcelCandidate = null;
+    let prevBillCandidate   = null;
 
     // ======== JF SIGNALS (modern + legacy) ========
     function sendLive(valueStr){
@@ -196,8 +200,6 @@
     // ======== VALIDATORS ========
     async function validateParcel(raw, {alsoMsg=false} = {}){
       const val = onlyDigits(raw);
-      if (val === lastCheckedParcel) return;
-      lastCheckedParcel = val;
 
       if(!val){
         state.parcel=""; state.parcelOk=false;
@@ -206,6 +208,11 @@
         if (alsoMsg) sayLine("m_msg_parcel","No parcel detected.","");
         return;
       }
+
+      // de-dupe: only if same as last checked AND candidate hasn't changed
+      if (val === lastCheckedParcel && prevParcelCandidate === val) return;
+      lastCheckedParcel = val;
+
       say("m_parcel","Validating parcel…");
       if (alsoMsg) sayLine("m_msg_parcel","Validating parcel…","");
       try{
@@ -234,8 +241,6 @@
 
     async function validateBill(raw, {alsoMsg=false} = {}){
       const val = onlyDigits(raw);
-      if (val === lastCheckedBill) return;
-      lastCheckedBill = val;
 
       if(!val){
         state.bill=""; state.billOk=false;
@@ -244,6 +249,10 @@
         if (alsoMsg) sayLine("m_msg_bill","No bill detected.","");
         return;
       }
+
+      if (val === lastCheckedBill && prevBillCandidate === val) return;
+      lastCheckedBill = val;
+
       say("m_bill","Validating bill…");
       if (alsoMsg) sayLine("m_msg_bill","Validating bill…","");
       try{
@@ -281,16 +290,26 @@
       let candParcel = extractFirstParcel(rawText);
       let candBill   = extractFirstBill(rawText);
 
-      // de-dupe safeguard (shouldn't trigger with strict lengths)
+      // (lengths are distinct; keep a safeguard anyway)
       if (candParcel && candBill && candParcel === candBill) {
         if (candParcel.length === PARCEL_LEN && candBill.length !== BILL_LEN) candBill = "";
         else if (candBill.length === BILL_LEN && candParcel.length !== PARCEL_LEN) candParcel = "";
         else candBill = "";
       }
 
-      // status lines
-      sayLine("m_msg_parcel", candParcel ? `Detected parcel: ${candParcel}` : "No parcel detected.", "");
-      sayLine("m_msg_bill",   candBill   ? `Detected bill: ${candBill}`     : "No bill detected.",   "");
+      // If candidate CHANGED, show "Validating…" (otherwise keep last ✓/✗)
+      if (candParcel !== prevParcelCandidate) {
+        if (candParcel) sayLine("m_msg_parcel","Validating parcel…","");
+        else            sayLine("m_msg_parcel","No parcel detected.","");
+        lastCheckedParcel = null;             // allow re-validate
+      }
+      if (candBill !== prevBillCandidate) {
+        if (candBill)   sayLine("m_msg_bill","Validating bill…","");
+        else            sayLine("m_msg_bill","No bill detected.","");
+        lastCheckedBill = null;
+      }
+      prevParcelCandidate = candParcel || null;
+      prevBillCandidate   = candBill   || null;
 
       // mirror immediately
       state.parcel = candParcel || "";
@@ -301,9 +320,9 @@
       // push live value
       sendLive(currentString());
 
-      // debounced validation → hits correct endpoints now
-      if (state.parcel) debouncedParcel(state.parcel); else sayLine("m_msg_parcel","No parcel detected.","");
-      if (state.bill)   debouncedBill(state.bill);     else sayLine("m_msg_bill","No bill detected.","");
+      // debounced validation → hits correct endpoints
+      if (state.parcel) debouncedParcel(state.parcel);
+      if (state.bill)   debouncedBill(state.bill);
     }
 
     // ======== BOOTSTRAP ========
