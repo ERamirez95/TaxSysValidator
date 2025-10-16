@@ -64,12 +64,12 @@
 <body>
     <div class="row">
         <div class="field">
-            <label for="parcel">Parcel Number</label>
+            <label for="parcel" id="label_parcel">Parcel Number</label>
             <input id="parcel" placeholder="Enter parcel number" autocomplete="off" inputmode="numeric" />
             <div id="m_parcel" class="msg">We’ll verify this before you submit.</div>
         </div>
         <div class="field">
-            <label for="bill">Bill Number</label>
+            <label for="bill" id="label_bill">Bill Number</label>
             <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="numeric" />
             <div id="m_bill" class="msg">We’ll verify this before you submit.</div>
         </div>
@@ -78,216 +78,215 @@
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-  // ===== LIVE ENDPOINTS (unchanged) =====
-  const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
-  const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
-  const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
+    // ===== LIVE ENDPOINTS (unchanged) =====
+    const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
+    const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
+    const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
-  // ===== URL-DRIVEN CONFIG (NEW) =====
-  const params   = new URLSearchParams(location.search);
-  const variant  = (params.get("variant") || "both").toLowerCase();   // "parcel" | "bill" | "both"
-  const requireMode = (params.get("require") || "any").toLowerCase(); // "any" | "both" | "parcel" | "bill" | "none"
-  const labelOverrides = {
-    parcelLabel: params.get("parcelLabel"),
-    billLabel:   params.get("billLabel"),
-    parcelPh:    params.get("parcelPh"),
-    billPh:      params.get("billPh"),
-  };
+    // ===== Helpers =====
+    const $ = (id) => document.getElementById(id);
+    const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+    function safeDecode(v) {
+      if (!v) return v;
+      try { v = decodeURIComponent(v); } catch {}
+      try { v = decodeURIComponent(v); } catch {}
+      return v.replace(/\+/g, ' ');
+    }
+    function say(whereId, text, cls = "") {
+      const e = $(whereId);
+      if (!e) return;
+      e.className = "msg " + cls;
+      e.textContent = text;
+    }
+    async function getJson(url) {
+      const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
+      let data = null; try { data = await res.json(); } catch {}
+      return { status: res.status, ok: res.ok, data };
+    }
 
-  // ===== Utilities =====
-  const $ = (id) => document.getElementById(id);
-  const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
-  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+    // ===== URL-DRIVEN CONFIG =====
+    const params      = new URLSearchParams(location.search);
+    const variant     = (params.get("variant") || "both").toLowerCase();   // "parcel" | "bill" | "both"
+    const requireMode = (params.get("require") || "any").toLowerCase();    // "any" | "both" | "parcel" | "bill" | "none"
+    const labelOverrides = {
+      parcelLabel: safeDecode(params.get("parcelLabel")),
+      billLabel:   safeDecode(params.get("billLabel")),
+      parcelPh:    safeDecode(params.get("parcelPh")),
+      billPh:      safeDecode(params.get("billPh")),
+    };
 
-  function say(whereId, text, cls = "") {
-    const e = $(whereId);
-    if (!e) return;
-    e.className = "msg " + cls;
-    e.textContent = text;
-  }
+    // ===== State we send back to Jotform =====
+    const state = {
+      parcel: "",     // normalized value or ""
+      bill: "",       // normalized value or ""
+      parcelOk: false,
+      billOk: false
+    };
 
-  async function getJson(url) {
-    const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
-    let data = null; try { data = await res.json(); } catch {}
-    return { status: res.status, ok: res.ok, data };
-  }
+    // IMPORTANT: make each widget instance look like a single mappable field
+    function pushToJotform() {
+      if (!(window.JFCustomWidget && typeof JFCustomWidget.setValue === "function")) return;
 
-  // ===== State we send back to Jotform =====
-  const state = {
-    parcel: "",     // normalized value or ""
-    bill: "",       // normalized value or ""
-    parcelOk: false,
-    billOk: false
-  };
-
-  function pushToJotform() {
-    // Send a single JSON string; Jotform widgets commonly expect a single value
-    if (window.JFCustomWidget && typeof JFCustomWidget.setValue === "function") {
-      const payload = {
-        ...state,
-        variant,
-        requireMode
-      };
+      if (variant === "parcel") {
+        // Send ONLY the parcel value (string). This makes the widget mappable to a single Zendesk field.
+        JFCustomWidget.setValue(state.parcel || "");
+        return;
+      }
+      if (variant === "bill") {
+        // Send ONLY the bill value (string).
+        JFCustomWidget.setValue(state.bill || "");
+        return;
+      }
+      // variant === "both" → keep JSON payload for advanced use (webhooks, etc.)
+      const payload = { ...state, variant, requireMode };
       JFCustomWidget.setValue(JSON.stringify(payload));
     }
-  }
 
-  // ===== Helpers (NEW) =====
-  function applyVariant() {
-    const parcelWrap = document.querySelector('#parcel')?.closest('.field');
-    const billWrap   = document.querySelector('#bill')?.closest('.field');
+    // Show/hide fields based on variant
+    function applyVariant() {
+      const parcelWrap = document.querySelector('#parcel')?.closest('.field');
+      const billWrap   = document.querySelector('#bill')?.closest('.field');
 
-    if (variant === "parcel") {
-      if (billWrap)   billWrap.style.display = "none";
-      if (parcelWrap) parcelWrap.style.display = "block";
-    } else if (variant === "bill") {
-      if (parcelWrap) parcelWrap.style.display = "none";
-      if (billWrap)   billWrap.style.display = "block";
-    } else { // both
-      if (parcelWrap) parcelWrap.style.display = "block";
-      if (billWrap)   billWrap.style.display = "block";
+      if (variant === "parcel") {
+        if (billWrap)   billWrap.style.display = "none";
+        if (parcelWrap) parcelWrap.style.display = "block";
+      } else if (variant === "bill") {
+        if (parcelWrap) parcelWrap.style.display = "none";
+        if (billWrap)   billWrap.style.display = "block";
+      } else { // both
+        if (parcelWrap) parcelWrap.style.display = "block";
+        if (billWrap)   billWrap.style.display = "block";
+      }
     }
-  }
 
-  function computeAllowSubmit() {
-    const anyValid  = state.parcelOk || state.billOk;
-    const bothValid = state.parcelOk && state.billOk;
-    const noneSet   = !state.parcel && !state.bill;
+    function computeAllowSubmit() {
+      const anyValid  = state.parcelOk || state.billOk;
+      const bothValid = state.parcelOk && state.billOk;
+      const noneSet   = !state.parcel && !state.bill;
 
-    switch (requireMode) {
-      case "both":
-        // If only one field is rendered, treat its validity as satisfying "both"
-        if (variant === "parcel") return state.parcelOk;
-        if (variant === "bill")   return state.billOk;
-        return bothValid;
-      case "parcel":
-        // If parcel isn't rendered, don't block
-        return variant === "bill" ? true : state.parcelOk;
-      case "bill":
-        // If bill isn't rendered, don't block
-        return variant === "parcel" ? true : state.billOk;
-      case "none":
-        return true; // never block
-      case "any":
-      default:
-        // allow submit if at least one valid OR both blank (keeps your current behavior)
-        return anyValid || noneSet;
+      switch (requireMode) {
+        case "both":
+          if (variant === "parcel") return state.parcelOk;
+          if (variant === "bill")   return state.billOk;
+          return bothValid;
+        case "parcel":
+          return variant === "bill" ? true : state.parcelOk;
+        case "bill":
+          return variant === "parcel" ? true : state.billOk;
+        case "none":
+          return true;
+        case "any":
+        default:
+          return anyValid || noneSet;
+      }
     }
-  }
 
-  // ===== Validators (independent) =====
-  async function validateParcel(raw) {
-    const val = onlyDigits(raw);
-    if (!val) {
-      state.parcel = ""; state.parcelOk = false; pushToJotform();
-      say("m_parcel", "Enter a parcel number or leave blank if none.");
-      return;
-    }
-    say("m_parcel", "Validating parcel…");
-    try {
-      const r = await getJson(PARCEL_URL(val));
-      if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
-        const n = r.data.normalized || r.data.parcel || val;
-        state.parcel = n; state.parcelOk = true; pushToJotform();
-        say("m_parcel", "✓ Valid parcel", "ok");
-      } else {
+    // ===== Validators =====
+    async function validateParcel(raw) {
+      const val = onlyDigits(raw);
+      if (!val) {
         state.parcel = ""; state.parcelOk = false; pushToJotform();
-        say("m_parcel", "✗ Invalid parcel number. Please check and retype again", "bad");
+        say("m_parcel", "Enter a parcel number or leave blank if none.");
+        return;
       }
-    } catch {
-      state.parcel = ""; state.parcelOk = false; pushToJotform();
-      say("m_parcel", "⚠ Error contacting parcel validator.", "bad");
+      say("m_parcel", "Validating parcel…");
+      try {
+        const r = await getJson(PARCEL_URL(val));
+        if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
+          const n = r.data.normalized || r.data.parcel || val;
+          state.parcel = n; state.parcelOk = true; pushToJotform();
+          say("m_parcel", "✓ Valid parcel", "ok");
+        } else {
+          state.parcel = ""; state.parcelOk = false; pushToJotform();
+          say("m_parcel", "✗ Invalid parcel number. Please check and retype again", "bad");
+        }
+      } catch {
+        state.parcel = ""; state.parcelOk = false; pushToJotform();
+        say("m_parcel", "⚠ Error contacting parcel validator.", "bad");
+      }
     }
-  }
 
-  async function validateBill(raw) {
-    const val = onlyDigits(raw);
-    if (!val) {
-      state.bill = ""; state.billOk = false; pushToJotform();
-      say("m_bill", "Enter a bill number or leave blank if none.");
-      return;
-    }
-    say("m_bill", "Validating bill…");
-    try {
-      const r = await getJson(BILL_URL(val));
-      if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
-        const n = r.data.normalized || r.data.bill || val;
-        state.bill = n; state.billOk = true; pushToJotform();
-        say("m_bill", "✓ Valid bill", "ok");
-      } else {
+    async function validateBill(raw) {
+      const val = onlyDigits(raw);
+      if (!val) {
         state.bill = ""; state.billOk = false; pushToJotform();
-        say("m_bill", "✗ Invalid bill number. Please check and retype again", "bad");
+        say("m_bill", "Enter a bill number or leave blank if none.");
+        return;
       }
-    } catch {
-      state.bill = ""; state.billOk = false; pushToJotform();
-      say("m_bill", "⚠ Error contacting bill validator.", "bad");
-    }
-  }
-
-  const debouncedParcel = debounce((v) => validateParcel(v), 250);
-  const debouncedBill   = debounce((v) => validateBill(v), 250);
-
-  // ===== Wiring =====
-  (function bootstrap() {
-    if (window.__taxSysValidatorTwoBoxInit) return;
-    window.__taxSysValidatorTwoBoxInit = true;
-
-    // Attach references
-    const parcelEl = $("parcel");
-    const billEl = $("bill");
-
-    // Apply variant-specific UI and label/placeholder overrides ASAP
-    applyVariant();
-    if (labelOverrides.parcelLabel) {
-      const l = document.querySelector('label[for="parcel"]');
-      if (l) l.textContent = labelOverrides.parcelLabel;
-    }
-    if (labelOverrides.billLabel) {
-      const l = document.querySelector('label[for="bill"]');
-      if (l) l.textContent = labelOverrides.billLabel;
-    }
-    if (labelOverrides.parcelPh && parcelEl) parcelEl.placeholder = labelOverrides.parcelPh;
-    if (labelOverrides.billPh && billEl)     billEl.placeholder   = labelOverrides.billPh;
-
-    // Jotform lifecycle
-    if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function") {
-      JFCustomWidget.subscribe("ready",  () => {
-        state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform();
-      });
-
-      JFCustomWidget.subscribe("submit", () => {
-        const allow = computeAllowSubmit();
-        JFCustomWidget.sendSubmit(!!allow);
-      });
-    } else {
-      const showHint = () => { const hint = $("standaloneHint"); if (hint) hint.style.display = "block"; };
-      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showHint, { once: true });
-      else showHint();
+      say("m_bill", "Validating bill…");
+      try {
+        const r = await getJson(BILL_URL(val));
+        if (r.ok && (r.data?.exists === true || r.data?.ok === true)) {
+          const n = r.data.normalized || r.data.bill || val;
+          state.bill = n; state.billOk = true; pushToJotform();
+          say("m_bill", "✓ Valid bill", "ok");
+        } else {
+          state.bill = ""; state.billOk = false; pushToJotform();
+          say("m_bill", "✗ Invalid bill number. Please check and retype again", "bad");
+        }
+      } catch {
+        state.bill = ""; state.billOk = false; pushToJotform();
+        say("m_bill", "⚠ Error contacting bill validator.", "bad");
+      }
     }
 
-    const onParcelInput = (e) => { if (e && e.target && e.target.id === "parcel") debouncedParcel(e.target.value); };
-    const onBillInput   = (e) => { if (e && e.target && e.target.id === "bill")     debouncedBill(e.target.value);   };
+    const debouncedParcel = debounce((v) => validateParcel(v), 250);
+    const debouncedBill   = debounce((v) => validateBill(v), 250);
 
-    document.addEventListener("input", onParcelInput, true);
-    document.addEventListener("change", onParcelInput, true);
-    document.addEventListener("blur", onParcelInput, true);
+    // ===== Wiring =====
+    (function bootstrap() {
+      if (window.__taxSysValidatorTwoBoxInit) return;
+      window.__taxSysValidatorTwoBoxInit = true;
 
-    document.addEventListener("input", onBillInput, true);
-    document.addEventListener("change", onBillInput, true);
-    document.addEventListener("blur", onBillInput, true);
+      const parcelEl = $("parcel");
+      const billEl   = $("bill");
 
-    // Prefill/initial run
-    const runInitial = () => {
-      if (parcelEl && parcelEl.value) debouncedParcel(parcelEl.value);
-      if (billEl && billEl.value)     debouncedBill(billEl.value);
-      pushToJotform();
-    };
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", () => { queueMicrotask(runInitial); }, { once: true });
-    } else {
-      queueMicrotask(runInitial);
-    }
-  })();
+      // Apply variant and labels/placeholders
+      applyVariant();
+      if (labelOverrides.parcelLabel) { const l = $("label_parcel"); if (l) l.textContent = labelOverrides.parcelLabel; }
+      if (labelOverrides.billLabel)   { const l = $("label_bill");   if (l) l.textContent = labelOverrides.billLabel; }
+      if (labelOverrides.parcelPh && parcelEl) parcelEl.placeholder = labelOverrides.parcelPh;
+      if (labelOverrides.billPh && billEl)     billEl.placeholder   = labelOverrides.billPh;
+
+      // Jotform lifecycle
+      if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function") {
+        JFCustomWidget.subscribe("ready", () => {
+          state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform();
+        });
+        JFCustomWidget.subscribe("submit", () => {
+          const allow = computeAllowSubmit();
+          JFCustomWidget.sendSubmit(!!allow);
+        });
+      } else {
+        const showHint = () => { const hint = $("standaloneHint"); if (hint) hint.style.display = "block"; };
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showHint, { once: true });
+        else showHint();
+      }
+
+      const onParcelInput = (e) => { if (e?.target?.id === "parcel") debouncedParcel(e.target.value); };
+      const onBillInput   = (e) => { if (e?.target?.id === "bill")   debouncedBill(e.target.value);   };
+
+      document.addEventListener("input", onParcelInput, true);
+      document.addEventListener("change", onParcelInput, true);
+      document.addEventListener("blur", onParcelInput, true);
+
+      document.addEventListener("input", onBillInput, true);
+      document.addEventListener("change", onBillInput, true);
+      document.addEventListener("blur", onBillInput, true);
+
+      // Prefill/initial run
+      const runInitial = () => {
+        if (parcelEl && parcelEl.value) debouncedParcel(parcelEl.value);
+        if (billEl && billEl.value)     debouncedBill(billEl.value);
+        pushToJotform();
+      };
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => { queueMicrotask(runInitial); }, { once: true });
+      } else {
+        queueMicrotask(runInitial);
+      }
+    })();
     </script>
 </body>
 </html>
