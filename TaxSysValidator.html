@@ -77,7 +77,7 @@
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-    <!-- Parcel/Bill UI (for parcel/bill/both variants) -->
+    <!-- Parcel/Bill UI (used when variant = parcel | bill | both) -->
     <div id="pbWrap" class="row">
         <div class="field" id="parcelField">
             <label for="parcel" id="label_parcel">Parcel Number</label>
@@ -91,23 +91,19 @@
         </div>
     </div>
 
-    <!-- Smart message variant -->
+    <!-- Smart free-text variant (variant = message) -->
     <div id="msgWrap" class="field hidden">
         <label for="freeText" id="label_message">Enter your message in the space provided below</label>
         <textarea id="freeText" placeholder="Type here… e.g. please check parcel 3132201260000 and bill 20150806261"></textarea>
         <div id="m_message" class="msg">We’ll auto-detect parcel/bill numbers and validate them.</div>
-        <div class="substatus" id="m_msg_parcel"></div>
-        <div class="substatus" id="m_msg_bill"></div>
+        <div class="substatus" id="m_msg_parcel">No parcel detected.</div>
+        <div class="substatus" id="m_msg_bill">No bill detected.</div>
     </div>
 
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ======== CONFIG (display-only labels; NOT used to write into other fields) ========
-    const UNIQUE_PARCEL = "typeA32";     // your native Parcel field unique name
-    const UNIQUE_BILL   = "billNumber";  // your native Bill field unique name
-
-    // Strict lengths (adjust to your real formats)
+    // ======== CONFIG (display-only; we no longer try to write into native fields) ========
     const PARCEL_LEN = 13;
     const BILL_LEN   = 11;
 
@@ -125,13 +121,13 @@
     const sayLine = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "substatus "+(cls||""); e.textContent = txt; };
     async function getJson(url){ const res=await fetch(url,{method:"GET",mode:"cors",cache:"no-store"}); let data=null; try{data=await res.json();}catch{} return {ok:res.ok,status:res.status,data}; }
 
-    // Strict extractors
+    // Strict extractors from free text
     function extractFirstParcel(s){
-      const m = s.match(new RegExp(`\\b\\d{${PARCEL_LEN}}\\b`, 'g')) || [];
+      const m = (s || "").match(new RegExp(`\\b\\d{${PARCEL_LEN}}\\b`, 'g')) || [];
       return (m[0] || "").replace(/[^\d]/g, "");
     }
     function extractFirstBill(s){
-      const m = s.match(new RegExp(`\\b\\d{${BILL_LEN}}\\b`, 'g')) || [];
+      const m = (s || "").match(new RegExp(`\\b\\d{${BILL_LEN}}\\b`, 'g')) || [];
       return (m[0] || "").replace(/[^\d]/g, "");
     }
 
@@ -151,24 +147,25 @@
     // ======== STATE ========
     const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
 
-    // De-dupe + candidate tracking (so we keep status until number changes)
+    // de-dupe/persistence across edits
     let lastCheckedParcel = null;
     let lastCheckedBill   = null;
     let prevParcelCandidate = null;
     let prevBillCandidate   = null;
 
-    // ======== EMIT VALUE TO JOTFORM (the key change) ========
-    // Live value becomes: "P:<parcel>|B:<bill>"
+    // ======== EMIT TO JOTFORM (LIVE) ========
+    // Publish a tagged string the form can copy/parse: "P:<parcel>|B:<bill>"
     function emitWidgetValue(){
       const pipe = `P:${state.parcel || ""}|B:${state.bill || ""}`;
-      if(!window.JFCustomWidget) return;
-      try { JFCustomWidget.setValue(pipe); } catch {}
-      try { JFCustomWidget.sendData({ valid: true, value: pipe }); } catch {}
-      try { JFCustomWidget.setHeight(document.body.scrollHeight || 180); } catch {}
+      if (window.JFCustomWidget) {
+        try { JFCustomWidget.setValue(pipe); } catch {}
+        try { JFCustomWidget.sendData({ valid: true, value: pipe }); } catch {}
+        try { JFCustomWidget.setHeight(document.body.scrollHeight || 180); } catch {}
+      }
     }
 
-    // JSON string for submit (kept for integrations/records)
-    function currentJson(){
+    // ======== VALUE FOR SUBMIT (JSON) ========
+    function currentSubmitValue(){
       if (variant === "parcel")   return state.parcel || "";
       if (variant === "bill")     return state.bill   || "";
       if (variant === "message")  return JSON.stringify({ message: state.message, parcel: state.parcel, bill: state.bill });
@@ -273,26 +270,24 @@
     function onMessageInput(rawText){
       state.message = rawText || "";
 
-      // strict extraction
+      // detect candidates
       let candParcel = extractFirstParcel(rawText);
       let candBill   = extractFirstBill(rawText);
 
-      // safeguard (lengths are distinct)
+      // disambiguate if lengths collide (belt & suspenders)
       if (candParcel && candBill && candParcel === candBill) {
         if (candParcel.length === PARCEL_LEN && candBill.length !== BILL_LEN) candBill = "";
         else if (candBill.length === BILL_LEN && candParcel.length !== PARCEL_LEN) candParcel = "";
         else candBill = "";
       }
 
-      // If candidate CHANGED, show "Validating…" (otherwise keep last ✓/✗)
+      // show "Validating…" only when candidate changes
       if (candParcel !== prevParcelCandidate) {
-        if (candParcel) sayLine("m_msg_parcel","Validating parcel…","");
-        else            sayLine("m_msg_parcel","No parcel detected.","");
+        sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", "");
         lastCheckedParcel = null;
       }
       if (candBill !== prevBillCandidate) {
-        if (candBill)   sayLine("m_msg_bill","Validating bill…","");
-        else            sayLine("m_msg_bill","No bill detected.","");
+        sayLine("m_msg_bill", candBill ? "Validating bill…" : "No bill detected.", "");
         lastCheckedBill = null;
       }
       prevParcelCandidate = candParcel || null;
@@ -303,16 +298,14 @@
       state.bill   = candBill   || "";
       emitWidgetValue();
 
-      // debounced validation → hits correct endpoints
+      // validate (debounced)
       if (state.parcel) debouncedParcel(state.parcel);
       if (state.bill)   debouncedBill(state.bill);
     }
 
     // ======== BOOTSTRAP ========
     (function init(){
-      applyVariantUI();
-
-      // Labels/placeholders
+      // UI labels/placeholders from URL overrides
       if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l) l.textContent=labelOverrides.parcelLabel; }
       if (labelOverrides.billLabel){   const l=$("label_bill");   if(l) l.textContent=labelOverrides.billLabel; }
       if (labelOverrides.messageLabel){ const l=$("label_message"); if(l) l.textContent=labelOverrides.messageLabel; }
@@ -320,7 +313,9 @@
       if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
       if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
 
-      // Listeners
+      applyVariantUI();
+
+      // Listeners (parcel/bill/both UI)
       const onParcelInput=(e)=>{ if(e?.target?.id!=="parcel") return; state.parcel=onlyDigits(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); };
       const onBillInput  =(e)=>{ if(e?.target?.id!=="bill")   return; state.bill  =onlyDigits(e.target.value); emitWidgetValue(); debouncedBill(e.target.value); };
       const onMsgInput   =(e)=>{ if(e?.target?.id!=="freeText") return; onMessageInput(e.target.value); };
@@ -334,21 +329,24 @@
 
       // Jotform lifecycle
       if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
+        // 1) READY — start clean and publish initial "P:|B:"
         JFCustomWidget.subscribe("ready", () => {
           state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; state.message="";
           emitWidgetValue();
         });
+
+        // 2) SUBMIT — return a JSON payload (Conditions already used the live tagged string)
         JFCustomWidget.subscribe("submit", () => {
           if ($("freeText")) state.message = $("freeText").value || "";
           if ($("parcel"))   state.parcel  = onlyDigits($("parcel").value);
           if ($("bill"))     state.bill    = onlyDigits($("bill").value);
-          // Submit JSON payload; Conditions will have used the live tagged string already
-          if (window.JFCustomWidget) {
-            try { JFCustomWidget.sendSubmit({ valid: true, value: currentJson() }); return; } catch {}
-            try { JFCustomWidget.sendSubmit(true); } catch {}
-          }
+
+          const payload = currentSubmitValue();
+          try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
+          try { JFCustomWidget.sendSubmit(true); } catch {}
         });
       } else {
+        // Standalone test hint
         const showHint=()=>{ const hint=$("standaloneHint"); if(hint) hint.style.display="block"; };
         if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", showHint, {once:true}); else showHint();
       }
