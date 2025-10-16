@@ -78,42 +78,58 @@
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ===== ENDPOINTS =====
+    // ---- endpoints ----
     const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
     const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
     const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
-    // ===== Utils =====
+    // ---- utils ----
     const $ = (id) => document.getElementById(id);
     const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-    function safeDecode(v){ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); }
-    function say(whereId, text, cls=""){ const e=$(whereId); if(!e) return; e.className="msg "+cls; e.textContent=text; }
-    async function getJson(url){ const res=await fetch(url,{method:"GET",mode:"cors",cache:"no-store"}); let data=null; try{data=await res.json();}catch{} return {status:res.status, ok:res.ok, data}; }
+    const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
+    const say = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "msg "+cls; e.textContent = txt; };
+    async function getJson(url){ const res=await fetch(url,{method:"GET",mode:"cors",cache:"no-store"}); let data=null; try{data=await res.json();}catch{} return {ok:res.ok,status:res.status,data}; }
 
-    // ===== URL config =====
+    // ---- config ----
     const params      = new URLSearchParams(location.search);
-    const variant     = (params.get("variant") || "both").toLowerCase();   // parcel | bill | both
-    const requireMode = (params.get("require") || "any").toLowerCase();    // any | both | parcel | bill | none
+    const variant     = (params.get("variant") || "both").toLowerCase();   // parcel|bill|both
+    const requireMode = (params.get("require") || "any").toLowerCase();    // any|both|parcel|bill|none
     const labelOverrides = {
       parcelLabel: safeDecode(params.get("parcelLabel")),
       billLabel:   safeDecode(params.get("billLabel")),
       parcelPh:    safeDecode(params.get("parcelPh")),
-      billPh:      safeDecode(params.get("billPh")),
+      billPh:      safeDecode(params.get("billPh"))
     };
 
-    // ===== State =====
+    // ---- state ----
     const state = { parcel:"", bill:"", parcelOk:false, billOk:false };
 
-    // Send a value to Jotform. For variant=parcel/bill, ALWAYS send a plain string.
-    function pushToJotform(){
-      if(!(window.JFCustomWidget && typeof JFCustomWidget.setValue==="function")) return;
-      if(variant === "parcel"){ JFCustomWidget.setValue(state.parcel || ""); return; }
-      if(variant === "bill"){   JFCustomWidget.setValue(state.bill   || ""); return; }
-      JFCustomWidget.setValue(JSON.stringify({ ...state, variant, requireMode }));
+    // ---- JF helpers (modern + legacy) ----
+    function sendLive(valueStr){
+      if(!window.JFCustomWidget) return;
+      // modern
+      try { JFCustomWidget.setValue(valueStr); } catch {}
+      // legacy live ping (per Jotform dev note)
+      try { JFCustomWidget.sendData({ valid: true, value: valueStr }); } catch {}
+      // nudge height so host processes messages immediately
+      try { JFCustomWidget.setHeight(document.body.scrollHeight || 120); } catch {}
+    }
+    function sendSubmitValue(valueStr){
+      if(!window.JFCustomWidget) return;
+      // include value in submit payload as the dev suggests
+      try { JFCustomWidget.sendSubmit({ valid: true, value: valueStr }); return; } catch {}
+      // fallback to boolean if host expects it
+      try { JFCustomWidget.sendSubmit(true); } catch {}
+    }
+    function currentString(){
+      if (variant === "parcel") return state.parcel || "";
+      if (variant === "bill")   return state.bill   || "";
+      // both → keep compact JSON string
+      return JSON.stringify({ ...state, variant, requireMode });
     }
 
-    // Variant UI
+    // ---- variant ui ----
     function applyVariant(){
       const parcelWrap = document.querySelector('#parcel')?.closest('.field');
       const billWrap   = document.querySelector('#bill')?.closest('.field');
@@ -122,60 +138,53 @@
       else { if(parcelWrap) parcelWrap.style.display="block"; if(billWrap) billWrap.style.display="block"; }
     }
 
-    // Validators
+    // ---- validators ----
     async function validateParcel(raw){
       const val = onlyDigits(raw);
-      if(!val){ state.parcel=""; state.parcelOk=false; pushToJotform(); say("m_parcel","Enter a parcel number or leave blank if none."); return; }
+      if(!val){ state.parcel=""; state.parcelOk=false; sendLive(currentString()); say("m_parcel","Enter a parcel number or leave blank if none."); return; }
       say("m_parcel","Validating parcel…");
       try{
         const r = await getJson(PARCEL_URL(val));
         if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
-          const n = r.data.normalized || r.data.parcel || val;
-          state.parcel=n; state.parcelOk=true; pushToJotform(); say("m_parcel","✓ Valid parcel","ok");
+          state.parcel = r.data.normalized || r.data.parcel || val;
+          state.parcelOk = true;
+          sendLive(currentString());
+          say("m_parcel","✓ Valid parcel","ok");
         } else {
-          state.parcel=""; state.parcelOk=false; pushToJotform(); say("m_parcel","✗ Invalid parcel number. Please check and retype again","bad");
+          state.parcel=""; state.parcelOk=false; sendLive(currentString());
+          say("m_parcel","✗ Invalid parcel number. Please check and retype again","bad");
         }
       }catch{
-        state.parcel=""; state.parcelOk=false; pushToJotform(); say("m_parcel","⚠ Error contacting parcel validator.","bad");
+        state.parcel=""; state.parcelOk=false; sendLive(currentString());
+        say("m_parcel","⚠ Error contacting parcel validator.","bad");
       }
     }
-
     async function validateBill(raw){
       const val = onlyDigits(raw);
-      if(!val){ state.bill=""; state.billOk=false; pushToJotform(); say("m_bill","Enter a bill number or leave blank if none."); return; }
+      if(!val){ state.bill=""; state.billOk=false; sendLive(currentString()); say("m_bill","Enter a bill number or leave blank if none."); return; }
       say("m_bill","Validating bill…");
       try{
         const r = await getJson(BILL_URL(val));
         if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
-          const n = r.data.normalized || r.data.bill || val;
-          state.bill=n; state.billOk=true; pushToJotform(); say("m_bill","✓ Valid bill","ok");
+          state.bill = r.data.normalized || r.data.bill || val;
+          state.billOk = true;
+          sendLive(currentString());
+          say("m_bill","✓ Valid bill","ok");
         } else {
-          state.bill=""; state.billOk=false; pushToJotform(); say("m_bill","✗ Invalid bill number. Please check and retype again","bad");
+          state.bill=""; state.billOk=false; sendLive(currentString());
+          say("m_bill","✗ Invalid bill number. Please check and retype again","bad");
         }
       }catch{
-        state.bill=""; state.billOk=false; pushToJotform(); say("m_bill","⚠ Error contacting bill validator.","bad");
+        state.bill=""; state.billOk=false; sendLive(currentString());
+        say("m_bill","⚠ Error contacting bill validator.","bad");
       }
     }
 
     const debouncedParcel = debounce((v)=>validateParcel(v), 250);
     const debouncedBill   = debounce((v)=>validateBill(v),   250);
 
-    // ===== Submit safety: always reply once =====
-    let submitted=false;
-    function safeSend(ok=true){
-      if(submitted) return;
-      submitted=true;
-      try{ pushToJotform(); }catch(e){}
-      setTimeout(()=>{ try{ JFCustomWidget.sendSubmit(!!ok); }catch(e){} }, 0);
-    }
-    // Hard failsafe: reply even if Jotform never calls submit (rare)
-    setTimeout(()=>safeSend(true), 8000);
-
-    // ===== Wiring =====
-    (function bootstrap(){
-      if(window.__taxSysValidatorTwoBoxInit) return;
-      window.__taxSysValidatorTwoBoxInit=true;
-
+    // ---- bootstrap ----
+    (function init(){
       const parcelEl = $("parcel");
       const billEl   = $("bill");
 
@@ -185,42 +194,35 @@
       if(labelOverrides.parcelPh && parcelEl) parcelEl.placeholder=labelOverrides.parcelPh;
       if(labelOverrides.billPh && billEl)     billEl.placeholder  =labelOverrides.billPh;
 
-      if(window.JFCustomWidget && typeof JFCustomWidget.subscribe==="function"){
-        JFCustomWidget.subscribe("ready", ()=>{
-          state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; pushToJotform();
-        });
-
-        // SAFE SUBMIT: finalize strings and always allow
-        JFCustomWidget.subscribe("submit", ()=>{
-          try{
-            const pEl = $("parcel");
-            const bEl = $("bill");
-            if(pEl){ state.parcel = onlyDigits(pEl.value); state.parcelOk = !!state.parcel; }
-            if(bEl){ state.bill   = onlyDigits(bEl.value); state.billOk   = !!state.bill;   }
-            // ensure plain string for variants
-            if(variant==="parcel")      JFCustomWidget.setValue(state.parcel || "");
-            else if(variant==="bill")   JFCustomWidget.setValue(state.bill   || "");
-            else                        JFCustomWidget.setValue(JSON.stringify({ ...state, variant, requireMode }));
-          }catch(e){}
-          safeSend(true);
-        });
-      } else {
-        const showHint=()=>{ const hint=$("standaloneHint"); if(hint) hint.style.display="block"; };
-        if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", showHint, {once:true}); else showHint();
-      }
-
-      // live input → validate → setValue (so Conditions can copy live)
-      const onParcelInput=(e)=>{ if(e?.target?.id==="parcel"){ debouncedParcel(e.target.value); /* also push current digits immediately */ state.parcel=onlyDigits(e.target.value); pushToJotform(); } };
-      const onBillInput  =(e)=>{ if(e?.target?.id==="bill"){   debouncedBill(e.target.value);   state.bill  =onlyDigits(e.target.value); pushToJotform(); } };
-
+      // listeners: push live string immediately, validate async
+      const onParcelInput=(e)=>{ if(e?.target?.id!=="parcel") return; state.parcel=onlyDigits(e.target.value); sendLive(currentString()); debouncedParcel(e.target.value); };
+      const onBillInput  =(e)=>{ if(e?.target?.id!=="bill")   return; state.bill  =onlyDigits(e.target.value); sendLive(currentString()); debouncedBill(e.target.value); };
       document.addEventListener("input",  onParcelInput, true);
       document.addEventListener("change", onParcelInput, true);
       document.addEventListener("input",  onBillInput,   true);
       document.addEventListener("change", onBillInput,   true);
 
-      const runInitial=()=>{ if(parcelEl && parcelEl.value) debouncedParcel(parcelEl.value); if(billEl && billEl.value) debouncedBill(billEl.value); pushToJotform(); };
-      if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", ()=>{ queueMicrotask(runInitial); }, {once:true}); }
-      else { queueMicrotask(runInitial); }
+      if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
+        // per Jotform dev: do everything after ready
+        JFCustomWidget.subscribe("ready", () => {
+          state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false;
+          // initialize with empty value so Conditions know the field exists
+          sendLive(currentString());
+          try { JFCustomWidget.setHeight(document.body.scrollHeight || 120); } catch {}
+        });
+
+        // include value in submit payload, never block
+        JFCustomWidget.subscribe("submit", () => {
+          // collapse any pending keystroke
+          const pEl = $("parcel"), bEl = $("bill");
+          if (pEl) state.parcel = onlyDigits(pEl.value);
+          if (bEl) state.bill   = onlyDigits(bEl.value);
+          sendSubmitValue(currentString());
+        });
+      } else {
+        const showHint=()=>{ const hint=$("standaloneHint"); if(hint) hint.style.display="block"; };
+        if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", showHint, {once:true}); else showHint();
+      }
     })();
     </script>
 </body>
