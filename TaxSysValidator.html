@@ -85,7 +85,6 @@
         </div>
         <div class="field" id="billField">
             <label for="bill" id="label_bill">Bill Number (Optional)</label>
-            <!-- bill: numeric keypad is fine -->
             <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="numeric" />
             <div id="m_bill" class="msg">We’ll verify this before you submit.</div>
         </div>
@@ -103,12 +102,13 @@
 
     <script>
   // ======== CONFIG ========
-  const PARCEL_LEN = 13;          // parcel length
-  const BILL_LENS  = [9, 11];     // bill can be 9 or 11
+  const PARCEL_LEN = 13;                 // parcel length
+  const BILL_LENS  = [9, 11];            // bill length options (digits)
 
-  // Optional: native Short Text unique names for best-effort sync
+  // Best-effort native field sync (optional)
   const UNIQUE_PARCEL = "typeA32";
   const UNIQUE_BILL   = "billNumber";
+  const UNIQUE_MESSAGE = "enterMessage";  // <-- if you know the unique name of your Jotform message field, put it here
 
   // ======== ENDPOINTS ========
   let BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
@@ -120,8 +120,8 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
 
-  // allow letters & digits; trim spaces; uppercase for consistency (parcels use this)
-  const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+  const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();  // parcels (alnum, 13)
+  const onlyDigits = (s) => String(s || "").replace(/\D/g,"");                       // bills (digits only)
 
   function requestResize() {
     try {
@@ -140,14 +140,13 @@
     return { ok: res.ok, status: res.status, data };
   }
 
-  // ======== STRICT EXTRACTORS ========
-  // Parcel: exactly 13 alphanumeric
+  // ======== DETECTORS ========
   function extractFirstParcel(s){
     const m = (s || "").match(new RegExp(`\\b[0-9A-Za-z]{${PARCEL_LEN}}\\b`, 'g')) || [];
     return normalizeToken(m[0] || "");
   }
 
-  // Bill: digits only, 11 or 9, with true numeric boundaries
+  // Bill: digits only, 11 or 9, with numeric boundaries
   const RE_BILL_CANDIDATES = /\d{11}|\d{9}/g;
   const isDigit = (c) => c >= "0" && c <= "9";
   function isDigitBounded(text, startIdx, len) {
@@ -162,18 +161,17 @@
     for (const mm of matches) {
       const val = mm[0];
       const start = mm.index ?? str.indexOf(val);
-      if (isDigitBounded(str, start, val.length)) return val; // keep digits only
+      if (isDigitBounded(str, start, val.length)) return val;
     }
     return "";
   }
-
-  // numeric + length check for bills
   const looksLikeBillLen = (v) => (/^\d{9}$/.test(v || "") || /^\d{11}$/.test(v || ""));
 
-  // ======== QUERY PARAMS ========
-  const params      = new URLSearchParams(location.search);
-  const variant     = (params.get("variant") || "both").toLowerCase();   // parcel | bill | both | message
-  const requireMode = (params.get("require") || "any").toLowerCase();    // any | both | parcel | bill | none
+  // ======== QUERY PARAMS & SETTINGS ========
+  const params       = new URLSearchParams(location.search);
+  const variant      = (params.get("variant") || "both").toLowerCase();     // parcel | bill | both | message
+  const requireMode  = (params.get("require") || "any").toLowerCase();      // any | both | parcel | bill | none
+  const payloadMode  = (params.get("payload") || "message").toLowerCase();  // message | pair
 
   const labelOverrides = {
     parcelLabel: safeDecode(params.get("parcelLabel")),
@@ -197,11 +195,10 @@
   let lastCheckedParcel = null, lastCheckedBill = null;
   let prevParcelCandidate = null, prevBillCandidate = null;
 
-  // ======== FIXED-WIDTH ENCODER (pipe only) ========
-  // Emits: "<13 parcel>|<11 bill>"
+  // ======== ENCODERS ========
   function fixedEncode(p, b) {
     const P = normalizeToken(p);
-    const B = String(b || "").replace(/\D/g, ""); // digits only for bill
+    const B = onlyDigits(b);
     const p13 = (("0000000000000" + P).slice(-13)).slice(0,13);
     const b11 = (("00000000000"  + B).slice(-11)).slice(0,11);
     return `${p13}|${b11}`;
@@ -214,21 +211,27 @@
   function syncToForm() {
     populateFormField(UNIQUE_PARCEL, state.parcel || "");
     populateFormField(UNIQUE_BILL,   state.bill   || "");
+    if (variant === "message") populateFormField(UNIQUE_MESSAGE, state.message || "");
   }
 
-  // ======== EMIT TO JOTFORM (LIVE) ========
+  // ======== WHAT THE WIDGET RETURNS ========
+  function getPayload() {
+    if (payloadMode === "pair") return fixedEncode(state.parcel, state.bill);
+    // default: message
+    return String(state.message || "");
+  }
+
   function emitWidgetValue(){
-    const fixed = fixedEncode(state.parcel, state.bill);
+    const value = getPayload();
     if (window.JFCustomWidget) {
-      try { JFCustomWidget.setValue(fixed); } catch {}
-      try { JFCustomWidget.sendData({ valid: true, value: fixed }); } catch {}
+      try { JFCustomWidget.setValue(value); } catch {}
+      try { JFCustomWidget.sendData({ valid: true, value }); } catch {}
       requestResize();
     }
     syncToForm();
   }
 
-  // ======== VALUE FOR SUBMIT ========
-  const currentSubmitValue = () => fixedEncode(state.parcel, state.bill);
+  const currentSubmitValue = () => getPayload();
 
   // ======== UI ========
   function applyVariantUI(){
@@ -274,8 +277,7 @@
   }
 
   async function validateBill(raw, {alsoMsg=false} = {}){
-    // keep only digits for bill validation
-    const val = String(raw || "").replace(/\D/g, "");
+    const val = onlyDigits(raw);
     if(!val){ state.bill=""; state.billOk=false; emitWidgetValue();
       say("m_bill","Enter a bill number or leave blank if none.");
       if (alsoMsg) sayLine("m_msg_bill","No bill detected.",""); return; }
@@ -288,7 +290,7 @@
     try{
       const r = await getJson(BILL_URL(val));
       if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
-        state.bill = String(r.data.normalized || r.data.bill || val).replace(/\D/g,"");
+        state.bill = onlyDigits(r.data.normalized || r.data.bill || val);
         state.billOk = true;
         emitWidgetValue(); say("m_bill","✓ Valid bill","ok");
         if (alsoMsg) sayLine("m_msg_bill",`✓ Bill ${state.bill} is valid`,"ok");
@@ -310,10 +312,10 @@
   // ======== MESSAGE VARIANT ========
   function onMessageInput(rawText){
     state.message = rawText || "";
-    let candParcel = extractFirstParcel(rawText);
-    let candBill   = extractFirstBill(rawText); // <-- fixed (digits only + numeric boundaries)
 
-    // If both hit the same 13 chars (very rare), prefer the rule that fits best
+    let candParcel = extractFirstParcel(rawText);
+    let candBill   = extractFirstBill(rawText);
+
     if (candParcel && candBill && candParcel === candBill) {
       if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
       else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
@@ -368,8 +370,8 @@
     // listeners
     document.addEventListener("input",  (e)=>{ if(e?.target?.id==="parcel"){ state.parcel=normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="parcel"){ state.parcel=normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
-    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="bill"){ state.bill=String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
-    document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ state.bill=String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
+    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="bill"){ state.bill=onlyDigits(e.target.value); emitWidgetValue(); debouncedBill(state.bill); }}, true);
+    document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ state.bill=onlyDigits(e.target.value); emitWidgetValue(); debouncedBill(state.bill); }}, true);
     document.addEventListener("input",  (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
 
@@ -389,7 +391,7 @@
       JFCustomWidget.subscribe("submit", async () => {
         if ($("freeText")) state.message = $("freeText").value || "";
         if ($("parcel"))   state.parcel  = normalizeToken($("parcel").value);
-        if ($("bill"))     state.bill    = String($("bill").value||"").replace(/\D/g,"");
+        if ($("bill"))     state.bill    = onlyDigits($("bill").value);
 
         const needsParcelCheck = state.parcel && !state.parcelOk && state.parcel.length === PARCEL_LEN;
         const needsBillCheck   = state.bill   && !state.billOk   && looksLikeBillLen(state.bill);
@@ -403,7 +405,7 @@
           return;
         }
 
-        const payload = currentSubmitValue();
+        const payload = currentSubmitValue(); // == message (default) or pair
         try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
         try { JFCustomWidget.sendSubmit(true); } catch {}
       });
