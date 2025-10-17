@@ -30,7 +30,7 @@
             margin: 0 0 6px;
             font-weight: 400;
         }
-        /* no bold */
+        /* no bold; size unchanged */
         input, textarea {
             width: 100%;
             padding: 8px;
@@ -77,6 +77,7 @@
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
+    <!-- Parcel/Bill UI -->
     <div id="pbWrap" class="row">
         <div class="field" id="parcelField">
             <label for="parcel" id="label_parcel">Parcel Number</label>
@@ -90,9 +91,10 @@
         </div>
     </div>
 
+    <!-- Smart free-text variant -->
     <div id="msgWrap" class="field hidden">
         <label for="freeText" id="label_message">Enter your message in the space provided below</label>
-        <textarea id="freeText" placeholder="Type here… e.g. please check parcel 3132201260000 and bill 20150806261"></textarea>
+        <textarea id="freeText" placeholder=""></textarea>
         <div id="m_message" class="msg">We’ll auto-detect parcel/bill numbers and validate them.</div>
         <div class="substatus" id="m_msg_parcel">No parcel detected.</div>
         <div class="substatus" id="m_msg_bill">No bill detected.</div>
@@ -101,13 +103,20 @@
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-  // ======== CONFIG ========
-  const PARCEL_LEN = 13;          // parcel length
-  const BILL_LENS  = [9, 11];     // bill can be 9 or 11
+  // ======== URL PARAMS EARLY (used in config) ========
+  const params = new URLSearchParams(location.search);
 
-  // Optional: native Short Text unique names for best-effort sync
-  const UNIQUE_PARCEL = "typeA32";
-  const UNIQUE_BILL   = "billNumber";
+  // ======== CONFIG ========
+  const PARCEL_LEN = 13;            // parcel length
+  const BILL_LENS  = [9, 11];       // bill can be 9 or 11
+
+  // Set these to your native field Unique Names (Form Builder → Properties → Advanced → Field Details)
+  const UNIQUE_PARCEL  = "typeA32";         // Parcel Number (Optional)
+  const UNIQUE_BILL    = "billNumber";      // Bill Number (Optional)
+  const UNIQUE_MESSAGE = "enterYour"; // Native long-text "Enter your message..." field
+
+  // Optional override via URL: ?msgField=<uniqueName>
+  const TARGET_MSG_FIELD = params.get("msgField") || UNIQUE_MESSAGE;
 
   // ======== ENDPOINTS ========
   let BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
@@ -119,7 +128,7 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
 
-  // allow letters & digits; trim spaces; uppercase for consistency
+  // allow letters & digits; trim; uppercase for consistency
   const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
 
   function requestResize() {
@@ -153,8 +162,7 @@
   }
   const looksLikeBillLen = (v) => BILL_LENS.includes((v||"").length);
 
-  // ======== QUERY PARAMS ========
-  const params      = new URLSearchParams(location.search);
+  // ======== VARIANT / LABEL OVERRIDES ========
   const variant     = (params.get("variant") || "both").toLowerCase();   // parcel | bill | both | message
   const requireMode = (params.get("require") || "any").toLowerCase();    // any | both | parcel | bill | none
 
@@ -195,13 +203,14 @@
     try { window.parent.postMessage({ action: "populate", field: uniqueName, value: value ?? "" }, "*"); } catch {}
   }
   function syncToForm() {
-    populateFormField(UNIQUE_PARCEL, state.parcel || "");
-    populateFormField(UNIQUE_BILL,   state.bill   || "");
+    populateFormField(UNIQUE_PARCEL,  state.parcel  || "");
+    populateFormField(UNIQUE_BILL,    state.bill    || "");
+    populateFormField(TARGET_MSG_FIELD, state.message || ""); // <-- mirrors full free-text
   }
 
   // ======== EMIT TO JOTFORM (LIVE) ========
   function emitWidgetValue(){
-    const fixed = fixedEncode(state.parcel, state.bill);
+    const fixed = fixedEncode(state.parcel, state.bill); // for Message Copy field (pipe for parsing)
     if (window.JFCustomWidget) {
       try { JFCustomWidget.setValue(fixed); } catch {}
       try { JFCustomWidget.sendData({ valid: true, value: fixed }); } catch {}
@@ -290,17 +299,26 @@
   // ======== MESSAGE VARIANT ========
   function onMessageInput(rawText){
     state.message = rawText || "";
+
     let candParcel = extractFirstParcel(rawText);
     let candBill   = extractFirstBill(rawText);
+
+    // disambiguate if identical token appears
     if (candParcel && candBill && candParcel === candBill) {
       if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
       else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
       else candBill = "";
     }
+
     if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
     if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
-    prevParcelCandidate = candParcel || null; prevBillCandidate = candBill || null;
-    state.parcel = candParcel || ""; state.bill = candBill || ""; emitWidgetValue();
+    prevParcelCandidate = candParcel || null;
+    prevBillCandidate   = candBill   || null;
+
+    state.parcel = candParcel || "";
+    state.bill   = candBill   || "";
+    emitWidgetValue();                 // updates pipe value AND pushes full message to native textarea
+
     if (state.parcel) debouncedParcel(state.parcel);
     if (state.bill)   debouncedBill(state.bill);
   }
@@ -363,12 +381,20 @@
         if ($("freeText")) state.message = $("freeText").value || "";
         if ($("parcel"))   state.parcel  = normalizeToken($("parcel").value);
         if ($("bill"))     state.bill    = normalizeToken($("bill").value);
+
         const needsParcelCheck = state.parcel && !state.parcelOk && state.parcel.length === PARCEL_LEN;
         const needsBillCheck   = state.bill   && !state.billOk   && looksLikeBillLen(state.bill);
         if (needsParcelCheck) await validateParcel(state.parcel);
         if (needsBillCheck)   await validateBill(state.bill);
-        if (!passesRequireRule()) { explainRequireFailure(); try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {} try { JFCustomWidget.sendSubmit(false); } catch {} return; }
-        const payload = currentSubmitValue();
+
+        if (!passesRequireRule()) {
+          explainRequireFailure();
+          try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {}
+          try { JFCustomWidget.sendSubmit(false); } catch {}
+          return;
+        }
+
+        const payload = currentSubmitValue(); // fixed-width pipe string
         try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
         try { JFCustomWidget.sendSubmit(true); } catch {}
       });
