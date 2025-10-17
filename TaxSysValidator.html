@@ -104,26 +104,56 @@
 
     <script>
   // ======== CONFIG ========
-  const PARCEL_LEN = 13;
-  const BILL_LEN   = 11;
+  const PARCEL_LEN = 13;               // parcel is 13 digits
+  const BILL_LENS  = [9, 11];          // bill can be 9 or 11
+  // Fixed-width transport string:
+  // PB1<13 parcel digits>|<11 bill digits>
+  // indexes: parcel [3..15], bill [17..27]
 
-  // **IMPORTANT**: set these to your native Short Text fields' Unique Names
-  const UNIQUE_PARCEL = "typeA32";     // Parcel Number (Optional)
-  const UNIQUE_BILL   = "billNumber";  // Bill Number (Optional)
+  // **IMPORTANT**: native Short Text unique names (optional best-effort sync)
+  const UNIQUE_PARCEL = "typeA32";    // Parcel Number (Optional)
+  const UNIQUE_BILL   = "billNumber"; // Bill Number (Optional)
 
   // ======== ENDPOINTS ========
-  const BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
-  const PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
-  const BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
+  let BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
+  let PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
+  let BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
   // ======== UTILS ========
   const $ = (id) => document.getElementById(id);
   const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "").trim();
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
-  const say = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "msg "+(cls||""); e.textContent = txt; };
-  const sayLine = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "substatus "+(cls||""); e.textContent = txt; };
-  async function getJson(url){ const res=await fetch(url,{method:"GET",mode:"cors",cache:"no-store"}); let data=null; try{data=await res.json();}catch{} return {ok:res.ok,status:res.status,data}; }
+
+  function requestResize() {
+    try {
+      const h = Math.max(document.body.scrollHeight, 180);
+      if (window.JFCustomWidget?.requestFrameResize) {
+        window.JFCustomWidget.requestFrameResize({ height: h });
+      } else if (window.JFCustomWidget?.setHeight) {
+        window.JFCustomWidget.setHeight(h);
+      }
+    } catch {}
+  }
+
+  const say = (id, txt, cls="") => {
+    const e=$(id); if(!e) return;
+    e.className = "msg "+(cls||"");
+    e.textContent = txt || "";
+    requestResize();
+  };
+  const sayLine = (id, txt, cls="") => {
+    const e=$(id); if(!e) return;
+    e.className = "substatus "+(cls||"");
+    e.textContent = txt || "";
+    requestResize();
+  };
+
+  async function getJson(url){
+    const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store" });
+    let data=null; try{ data=await res.json(); }catch{}
+    return { ok: res.ok, status: res.status, data };
+  }
 
   // Strict extractors from free text
   function extractFirstParcel(s){
@@ -131,14 +161,22 @@
     return (m[0] || "").replace(/[^\d]/g, "");
   }
   function extractFirstBill(s){
-    const m = (s || "").match(new RegExp(`\\b\\d{${BILL_LEN}}\\b`, 'g')) || [];
-    return (m[0] || "").replace(/[^\d]/g, "");
+    const str = (s || "");
+    const m11 = str.match(/\b\d{11}\b/g);
+    if (m11 && m11.length) return m11[0];
+    const m9  = str.match(/\b\d{9}\b/g);
+    return (m9 && m9.length ? m9[0] : "").replace(/[^\d]/g, "");
+  }
+  function looksLikeBillLen(v) {
+    const n = (v||"").length;
+    return BILL_LENS.includes(n);
   }
 
   // ======== QUERY PARAMS ========
   const params      = new URLSearchParams(location.search);
   const variant     = (params.get("variant") || "both").toLowerCase();   // parcel | bill | both | message
   const requireMode = (params.get("require") || "any").toLowerCase();    // any | both | parcel | bill | none
+
   const labelOverrides = {
     parcelLabel: safeDecode(params.get("parcelLabel")),
     billLabel:   safeDecode(params.get("billLabel")),
@@ -147,6 +185,14 @@
     messageLabel:safeDecode(params.get("messageLabel")),
     messagePh:   safeDecode(params.get("messagePh")),
   };
+
+  // Optional endpoint overrides via URL: ?parcelsEndpoint=&billsEndpoint=&base=
+  const urlParcels = safeDecode(params.get("parcelsEndpoint"));
+  const urlBills   = safeDecode(params.get("billsEndpoint"));
+  const urlBase    = safeDecode(params.get("base"));
+  if (urlBase)   BASE = urlBase;
+  if (urlParcels) PARCEL_URL = (v) => `${urlParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+  if (urlBills)   BILL_URL   = (v) => `${urlBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
 
   // ======== STATE ========
   const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
@@ -157,13 +203,18 @@
   let prevParcelCandidate = null;
   let prevBillCandidate   = null;
 
-  // ======== BRIDGE: write into native Jotform fields ========
+  // ======== FIXED-WIDTH ENCODER (key change) ========
+  // Emits: PB1<13 parcel>|<11 bill>
+  function fixedEncode(p, b) {
+    const p13 = (p || '').replace(/\D/g,'').padStart(13,'0').slice(-13);
+    const b11 = (b || '').replace(/\D/g,'').padStart(11,'0').slice(-11);
+    return `PB1${p13}|${b11}`;
+  }
+
+  // ======== BRIDGE to native fields (best-effort) ========
   function populateFormField(uniqueName, value) {
     try {
-      window.parent.postMessage(
-        { action: "populate", field: uniqueName, value: value ?? "" },
-        "*"
-      );
+      window.parent.postMessage({ action: "populate", field: uniqueName, value: value ?? "" }, "*");
     } catch {}
   }
   function syncToForm() {
@@ -171,25 +222,20 @@
     populateFormField(UNIQUE_BILL,   state.bill   || "");
   }
 
-  // ======== EMIT TO JOTFORM (LIVE) ========
-  // Publish a tagged string the form can copy/parse: "P:<parcel>|B:<bill>"
+  // ======== EMIT TO JOTFORM (LIVE) — fixed-width value ========
   function emitWidgetValue(){
-    const pipe = `P:${state.parcel || ""}|B:${state.bill || ""}`;
+    const fixed = fixedEncode(state.parcel, state.bill);
     if (window.JFCustomWidget) {
-      try { JFCustomWidget.setValue(pipe); } catch {}
-      try { JFCustomWidget.sendData({ valid: true, value: pipe }); } catch {}
-      try { JFCustomWidget.setHeight(document.body.scrollHeight || 180); } catch {}
+      try { JFCustomWidget.setValue(fixed); } catch {}
+      try { JFCustomWidget.sendData({ valid: true, value: fixed }); } catch {}
+      requestResize();
     }
-    // keep native fields in sync too
-    syncToForm();
+    syncToForm(); // optional
   }
 
-  // ======== VALUE FOR SUBMIT (JSON) ========
+  // ======== VALUE FOR SUBMIT (also fixed-width for consistency) ========
   function currentSubmitValue(){
-    if (variant === "parcel")   return state.parcel || "";
-    if (variant === "bill")     return state.bill   || "";
-    if (variant === "message")  return JSON.stringify({ message: state.message, parcel: state.parcel, bill: state.bill });
-    return JSON.stringify({ ...state, variant, requireMode }); // both
+    return fixedEncode(state.parcel, state.bill);
   }
 
   // ======== UI TOGGLING ========
@@ -204,6 +250,7 @@
       if (variant === "parcel") $("billField")?.classList.add("hidden");
       if (variant === "bill")   $("parcelField")?.classList.add("hidden");
     }
+    requestResize();
   }
 
   // ======== VALIDATORS ========
@@ -212,9 +259,17 @@
 
     if(!val){
       state.parcel=""; state.parcelOk=false;
-      emitWidgetValue(); // also clears native
+      emitWidgetValue();
       say("m_parcel","Enter a parcel number or leave blank if none.");
       if (alsoMsg) sayLine("m_msg_parcel","No parcel detected.","");
+      return;
+    }
+
+    if (val.length !== PARCEL_LEN) {
+      state.parcel=""; state.parcelOk=false;
+      emitWidgetValue();
+      say("m_parcel",`Parcel must be ${PARCEL_LEN} digits.`, "bad");
+      if (alsoMsg) sayLine("m_msg_parcel",`Parcel must be ${PARCEL_LEN} digits.`,"bad");
       return;
     }
 
@@ -223,6 +278,7 @@
 
     say("m_parcel","Validating parcel…");
     if (alsoMsg) sayLine("m_msg_parcel","Validating parcel…","");
+
     try{
       const r = await getJson(PARCEL_URL(val));
       if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
@@ -256,11 +312,20 @@
       return;
     }
 
+    if (!looksLikeBillLen(val)) {
+      state.bill=""; state.billOk=false;
+      emitWidgetValue();
+      say("m_bill","Bill numbers are 9 or 11 digits.","bad");
+      if (alsoMsg) sayLine("m_msg_bill","Bill numbers are 9 or 11 digits.","bad");
+      return;
+    }
+
     if (val === lastCheckedBill && prevBillCandidate === val) return;
     lastCheckedBill = val;
 
     say("m_bill","Validating bill…");
     if (alsoMsg) sayLine("m_msg_bill","Validating bill…","");
+
     try{
       const r = await getJson(BILL_URL(val));
       if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
@@ -290,37 +355,48 @@
   function onMessageInput(rawText){
     state.message = rawText || "";
 
-    // detect candidates
     let candParcel = extractFirstParcel(rawText);
     let candBill   = extractFirstBill(rawText);
 
-    // disambiguate if lengths collide (belt & suspenders)
     if (candParcel && candBill && candParcel === candBill) {
-      if (candParcel.length === PARCEL_LEN && candBill.length !== BILL_LEN) candBill = "";
-      else if (candBill.length === BILL_LEN && candParcel.length !== PARCEL_LEN) candParcel = "";
+      if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
+      else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
       else candBill = "";
     }
 
-    // show "Validating…" only when candidate changes
-    if (candParcel !== prevParcelCandidate) {
-      sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", "");
-      lastCheckedParcel = null;
-    }
-    if (candBill !== prevBillCandidate) {
-      sayLine("m_msg_bill", candBill ? "Validating bill…" : "No bill detected.", "");
-      lastCheckedBill = null;
-    }
+    if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
+    if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
     prevParcelCandidate = candParcel || null;
     prevBillCandidate   = candBill   || null;
 
-    // update state + emit tagged value (also syncs to native)
     state.parcel = candParcel || "";
     state.bill   = candBill   || "";
     emitWidgetValue();
 
-    // validate (debounced)
     if (state.parcel) debouncedParcel(state.parcel);
     if (state.bill)   debouncedBill(state.bill);
+  }
+
+  // ======== REQUIRE RULES (optional: enforce on submit) ========
+  function passesRequireRule() {
+    switch ((params.get("require") || "any").toLowerCase()) {
+      case "none":   return true;
+      case "parcel": return !!state.parcel && state.parcelOk;
+      case "bill":   return !!state.bill   && state.billOk;
+      case "both":   return (!!state.parcel && state.parcelOk) && (!!state.bill && state.billOk);
+      case "any":
+      default:
+        const anyProvided = !!state.parcel || !!state.bill;
+        const anyValid    = (state.parcel && state.parcelOk) || (state.bill && state.billOk);
+        return anyProvided ? anyValid : true;
+    }
+  }
+  function explainRequireFailure() {
+    const req = (params.get("require") || "any").toLowerCase();
+    if (req === "parcel")      say("m_parcel", "Parcel required and must be valid.", "bad");
+    else if (req === "bill")   say("m_bill",   "Bill required and must be valid.", "bad");
+    else if (req === "both") { if (!state.parcelOk) say("m_parcel","Parcel must be valid.","bad"); if (!state.billOk) say("m_bill","Bill must be valid.","bad"); }
+    else { if (state.parcel && !state.parcelOk) say("m_parcel","Parcel appears invalid.","bad"); if (state.bill && !state.billOk) say("m_bill","Bill appears invalid.","bad"); }
   }
 
   // ======== BOOTSTRAP ========
@@ -335,7 +411,7 @@
 
     applyVariantUI();
 
-    // Listeners (parcel/bill/both UI)
+    // Listeners
     const onParcelInput=(e)=>{ if(e?.target?.id!=="parcel") return; state.parcel=onlyDigits(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); };
     const onBillInput  =(e)=>{ if(e?.target?.id!=="bill")   return; state.bill  =onlyDigits(e.target.value); emitWidgetValue(); debouncedBill(e.target.value); };
     const onMsgInput   =(e)=>{ if(e?.target?.id!=="freeText") return; onMessageInput(e.target.value); };
@@ -349,25 +425,43 @@
 
     // Jotform lifecycle
     if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
-      // 1) READY — start clean and publish initial "P:|B:" (also clears native fields)
       JFCustomWidget.subscribe("ready", () => {
+        // Optional: read widget settings for endpoints
+        const sParcels = JFCustomWidget.getWidgetSetting?.("parcelsEndpoint");
+        const sBills   = JFCustomWidget.getWidgetSetting?.("billsEndpoint");
+        const sBase    = JFCustomWidget.getWidgetSetting?.("baseUrl");
+        if (sBase) BASE = sBase;
+        if (sParcels) PARCEL_URL = (v) => `${sParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+        if (sBills)   BILL_URL   = (v) => `${sBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+
         state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; state.message="";
         emitWidgetValue();
+        requestResize();
       });
 
-      // 2) SUBMIT — return a JSON payload; ensure native fields are synced
-      JFCustomWidget.subscribe("submit", () => {
+      JFCustomWidget.subscribe("submit", async () => {
         if ($("freeText")) state.message = $("freeText").value || "";
         if ($("parcel"))   state.parcel  = onlyDigits($("parcel").value);
         if ($("bill"))     state.bill    = onlyDigits($("bill").value);
-        syncToForm();
 
-        const payload = currentSubmitValue();
+        // quick last-minute validation when shapes look correct
+        const needsParcelCheck = state.parcel && !state.parcelOk && state.parcel.length === PARCEL_LEN;
+        const needsBillCheck   = state.bill   && !state.billOk   && looksLikeBillLen(state.bill);
+        if (needsParcelCheck) await validateParcel(state.parcel);
+        if (needsBillCheck)   await validateBill(state.bill);
+
+        if (!passesRequireRule()) {
+          explainRequireFailure();
+          try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {}
+          try { JFCustomWidget.sendSubmit(false); } catch {}
+          return;
+        }
+
+        const payload = currentSubmitValue(); // fixed-width
         try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
         try { JFCustomWidget.sendSubmit(true); } catch {}
       });
     } else {
-      // Standalone test hint
       const showHint=()=>{ const hint=$("standaloneHint"); if(hint) hint.style.display="block"; };
       if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", showHint, {once:true}); else showHint();
     }
