@@ -28,9 +28,9 @@
         label {
             display: block;
             margin: 0 0 6px;
-            font-weight: 400;
+            font-weight: 400; /* no bold */
         }
-        /* no bold */
+
         input, textarea {
             width: 100%;
             padding: 8px;
@@ -85,7 +85,8 @@
         </div>
         <div class="field" id="billField">
             <label for="bill" id="label_bill">Bill Number (Optional)</label>
-            <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="text" />
+            <!-- bill: numeric keypad is fine -->
+            <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="numeric" />
             <div id="m_bill" class="msg">We’ll verify this before you submit.</div>
         </div>
     </div>
@@ -119,7 +120,7 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
 
-  // allow letters & digits; trim spaces; uppercase for consistency
+  // allow letters & digits; trim spaces; uppercase for consistency (parcels use this)
   const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
 
   function requestResize() {
@@ -139,19 +140,35 @@
     return { ok: res.ok, status: res.status, data };
   }
 
-  // Extractors for message variant (alphanumeric)
+  // ======== STRICT EXTRACTORS ========
+  // Parcel: exactly 13 alphanumeric
   function extractFirstParcel(s){
     const m = (s || "").match(new RegExp(`\\b[0-9A-Za-z]{${PARCEL_LEN}}\\b`, 'g')) || [];
     return normalizeToken(m[0] || "");
   }
-  function extractFirstBill(s){
-    const str = (s || "");
-    const m11 = str.match(/\b[0-9A-Za-z]{11}\b/g);
-    if (m11 && m11.length) return normalizeToken(m11[0]);
-    const m9  = str.match(/\b[0-9A-Za-z]{9}\b/g);
-    return normalizeToken(m9 && m9.length ? m9[0] : "");
+
+  // Bill: digits only, 11 or 9, with true numeric boundaries
+  const RE_BILL_CANDIDATES = /\d{11}|\d{9}/g;
+  const isDigit = (c) => c >= "0" && c <= "9";
+  function isDigitBounded(text, startIdx, len) {
+    const endIdx = startIdx + len;
+    const prev = startIdx > 0 ? text[startIdx - 1] : "";
+    const next = endIdx < text.length ? text[endIdx] : "";
+    return !isDigit(prev) && !isDigit(next);
   }
-  const looksLikeBillLen = (v) => BILL_LENS.includes((v||"").length);
+  function extractFirstBill(s){
+    const str = s || "";
+    const matches = [...str.matchAll(RE_BILL_CANDIDATES)];
+    for (const mm of matches) {
+      const val = mm[0];
+      const start = mm.index ?? str.indexOf(val);
+      if (isDigitBounded(str, start, val.length)) return val; // keep digits only
+    }
+    return "";
+  }
+
+  // numeric + length check for bills
+  const looksLikeBillLen = (v) => (/^\d{9}$/.test(v || "") || /^\d{11}$/.test(v || ""));
 
   // ======== QUERY PARAMS ========
   const params      = new URLSearchParams(location.search);
@@ -184,7 +201,7 @@
   // Emits: "<13 parcel>|<11 bill>"
   function fixedEncode(p, b) {
     const P = normalizeToken(p);
-    const B = normalizeToken(b);
+    const B = String(b || "").replace(/\D/g, ""); // digits only for bill
     const p13 = (("0000000000000" + P).slice(-13)).slice(0,13);
     const b11 = (("00000000000"  + B).slice(-11)).slice(0,11);
     return `${p13}|${b11}`;
@@ -217,13 +234,15 @@
   function applyVariantUI(){
     const pb = $("pbWrap"), msg = $("msgWrap");
     if (variant === "message"){ pb?.classList.add("hidden"); msg?.classList.remove("hidden"); }
-    else { msg?.classList.add("hidden"); pb?.classList.remove("hidden");
-           if (variant === "parcel") $("billField")?.classList.add("hidden");
-           if (variant === "bill")   $("parcelField")?.classList.add("hidden"); }
+    else {
+      msg?.classList.add("hidden"); pb?.classList.remove("hidden");
+      if (variant === "parcel") $("billField")?.classList.add("hidden");
+      if (variant === "bill")   $("parcelField")?.classList.add("hidden");
+    }
     requestResize();
   }
 
-  // ======== VALIDATORS (alphanumeric) ========
+  // ======== VALIDATORS ========
   async function validateParcel(raw, {alsoMsg=false} = {}){
     const val = normalizeToken(raw);
     if(!val){ state.parcel=""; state.parcelOk=false; emitWidgetValue();
@@ -255,20 +274,21 @@
   }
 
   async function validateBill(raw, {alsoMsg=false} = {}){
-    const val = normalizeToken(raw);
+    // keep only digits for bill validation
+    const val = String(raw || "").replace(/\D/g, "");
     if(!val){ state.bill=""; state.billOk=false; emitWidgetValue();
       say("m_bill","Enter a bill number or leave blank if none.");
       if (alsoMsg) sayLine("m_msg_bill","No bill detected.",""); return; }
     if (!looksLikeBillLen(val)){ state.bill=""; state.billOk=false; emitWidgetValue();
-      say("m_bill","Bill numbers are 9 or 11 characters.","bad");
-      if (alsoMsg) sayLine("m_msg_bill","Bill numbers are 9 or 11 characters.","bad"); return; }
+      say("m_bill","Bill numbers are 9 or 11 digits.","bad");
+      if (alsoMsg) sayLine("m_msg_bill","Bill numbers are 9 or 11 digits.","bad"); return; }
     if (val === lastCheckedBill && prevBillCandidate === val) return;
     lastCheckedBill = val;
     say("m_bill","Validating bill…"); if (alsoMsg) sayLine("m_msg_bill","Validating bill…","");
     try{
       const r = await getJson(BILL_URL(val));
       if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
-        state.bill = normalizeToken(r.data.normalized || r.data.bill || val);
+        state.bill = String(r.data.normalized || r.data.bill || val).replace(/\D/g,"");
         state.billOk = true;
         emitWidgetValue(); say("m_bill","✓ Valid bill","ok");
         if (alsoMsg) sayLine("m_msg_bill",`✓ Bill ${state.bill} is valid`,"ok");
@@ -291,16 +311,23 @@
   function onMessageInput(rawText){
     state.message = rawText || "";
     let candParcel = extractFirstParcel(rawText);
-    let candBill   = extractFirstBill(rawText);
+    let candBill   = extractFirstBill(rawText); // <-- fixed (digits only + numeric boundaries)
+
+    // If both hit the same 13 chars (very rare), prefer the rule that fits best
     if (candParcel && candBill && candParcel === candBill) {
       if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
       else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
       else candBill = "";
     }
+
     if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
     if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
     prevParcelCandidate = candParcel || null; prevBillCandidate = candBill || null;
-    state.parcel = candParcel || ""; state.bill = candBill || ""; emitWidgetValue();
+
+    state.parcel = candParcel || "";
+    state.bill   = candBill   || "";
+    emitWidgetValue();
+
     if (state.parcel) debouncedParcel(state.parcel);
     if (state.bill)   debouncedBill(state.bill);
   }
@@ -341,8 +368,8 @@
     // listeners
     document.addEventListener("input",  (e)=>{ if(e?.target?.id==="parcel"){ state.parcel=normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="parcel"){ state.parcel=normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
-    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="bill"){ state.bill=normalizeToken(e.target.value); emitWidgetValue(); debouncedBill(e.target.value); }}, true);
-    document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ state.bill=normalizeToken(e.target.value); emitWidgetValue(); debouncedBill(e.target.value); }}, true);
+    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="bill"){ state.bill=String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
+    document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ state.bill=String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
     document.addEventListener("input",  (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
 
@@ -362,12 +389,20 @@
       JFCustomWidget.subscribe("submit", async () => {
         if ($("freeText")) state.message = $("freeText").value || "";
         if ($("parcel"))   state.parcel  = normalizeToken($("parcel").value);
-        if ($("bill"))     state.bill    = normalizeToken($("bill").value);
+        if ($("bill"))     state.bill    = String($("bill").value||"").replace(/\D/g,"");
+
         const needsParcelCheck = state.parcel && !state.parcelOk && state.parcel.length === PARCEL_LEN;
         const needsBillCheck   = state.bill   && !state.billOk   && looksLikeBillLen(state.bill);
         if (needsParcelCheck) await validateParcel(state.parcel);
         if (needsBillCheck)   await validateBill(state.bill);
-        if (!passesRequireRule()) { explainRequireFailure(); try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {} try { JFCustomWidget.sendSubmit(false); } catch {} return; }
+
+        if (!passesRequireRule()) {
+          explainRequireFailure();
+          try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {}
+          try { JFCustomWidget.sendSubmit(false); } catch {}
+          return;
+        }
+
         const payload = currentSubmitValue();
         try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
         try { JFCustomWidget.sendSubmit(true); } catch {}
