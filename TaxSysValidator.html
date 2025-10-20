@@ -1,11 +1,13 @@
-<!doctype html> 
-<html lang="en"> 
+<!doctype html>
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <title>TaxSys Validator (Parcel/Bill/Message)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-        :root { color-scheme: light dark; }
+        :root {
+            color-scheme: light dark;
+        }
 
         body {
             font: 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -19,7 +21,9 @@
             gap: 12px;
         }
 
-        .field { display: block; }
+        .field {
+            display: block;
+        }
 
         label {
             display: block;
@@ -46,8 +50,13 @@
             font-size: 12px;
         }
 
-        .ok  { color: #156c1e; }
-        .bad { color: #9f1d1d; }
+        .ok {
+            color: #156c1e;
+        }
+
+        .bad {
+            color: #9f1d1d;
+        }
 
         .hint {
             opacity: .8;
@@ -55,7 +64,9 @@
             margin-top: 8px;
         }
 
-        .hidden { display: none !important; }
+        .hidden {
+            display: none !important;
+        }
 
         .substatus {
             font-size: 12px;
@@ -196,6 +207,20 @@
     return `${p13}|${b11}`;
   }
 
+  // >>> NEW: compound-500 helpers (message + fixed parcel/bill) <<<
+  function padRight(str, len, ch=" ") {
+    str = String(str ?? "");
+    if (str.length >= len) return str.slice(0, len);
+    return str + ch.repeat(len - str.length);
+  }
+  function makeCompound500() {
+    const msg500 = padRight(state.message || "", 500, " ");
+    // reuse fixedEncode for tail; gives "<13 parcel>|<11 bill>"
+    const pair   = fixedEncode(state.parcel, state.bill);
+    return `${msg500}|${pair}`; // final = 500 + "|" + 13 + "|" + 11  (total 525)
+  }
+  // <<< end new helpers >>>
+
   // ======== BRIDGE to native fields (best-effort) ========
   function populateFormField(uniqueName, value) {
     try { window.parent.postMessage({ action: "populate", field: uniqueName, value: value ?? "" }, "*"); } catch {}
@@ -207,17 +232,19 @@
 
   // ======== EMIT TO JOTFORM (LIVE) ========
   function emitWidgetValue(){
-    const fixed = fixedEncode(state.parcel, state.bill);
+    // CHANGED: emit compound-500 instead of just "parcel|bill"
+    const value = makeCompound500();
     if (window.JFCustomWidget) {
-      try { JFCustomWidget.setValue(fixed); } catch {}
-      try { JFCustomWidget.sendData({ valid: true, value: fixed }); } catch {}
+      try { JFCustomWidget.setValue(value); } catch {}
+      try { JFCustomWidget.sendData({ valid: true, value }); } catch {}
       requestResize();
     }
     syncToForm();
   }
 
   // ======== VALUE FOR SUBMIT ========
-  const currentSubmitValue = () => fixedEncode(state.parcel, state.bill);
+  // CHANGED: submit the same compound-500 value
+  const currentSubmitValue = () => makeCompound500();
 
   // ======== UI ========
   function applyVariantUI(){
