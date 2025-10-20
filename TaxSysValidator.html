@@ -324,29 +324,34 @@
   const debouncedBill   = debounce((v)=>validateBill(v,   {alsoMsg: variant==="message"}), 250);
 
   // ======== MESSAGE VARIANT ========
-  function onMessageInput(rawText){
-    state.message = rawText || "";
-    let candParcel = extractFirstParcel(rawText);
-    let candBill   = extractFirstBill(rawText); // <-- fixed (digits only + numeric boundaries)
+function onMessageInput(rawText){
+  state.message = rawText || "";
 
-    // If both hit the same 13 chars (very rare), prefer the rule that fits best
-    if (candParcel && candBill && candParcel === candBill) {
-      if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
-      else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
-      else candBill = "";
-    }
+  let candParcel = extractFirstParcel(rawText);
+  let candBill   = extractFirstBill(rawText);
 
-    if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
-    if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
-    prevParcelCandidate = candParcel || null; prevBillCandidate = candBill || null;
-
-    state.parcel = candParcel || "";
-    state.bill   = candBill   || "";
-    emitWidgetValue();
-
-    if (state.parcel) debouncedParcel(state.parcel);
-    if (state.bill)   debouncedBill(state.bill);
+  // If both hit the same 13 chars (very rare), prefer the rule that fits best
+  if (candParcel && candBill && candParcel === candBill) {
+    if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
+    else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
+    else candBill = "";
   }
+
+  if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
+  if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
+  prevParcelCandidate = candParcel || null; 
+  prevBillCandidate   = candBill   || null;
+
+  // >>> Do NOT wipe existing values when no candidate is found
+  if (candParcel) state.parcel = candParcel;
+  if (candBill)   state.bill   = candBill;
+
+  emitWidgetValue();
+
+  if (state.parcel) debouncedParcel(state.parcel);
+  if (state.bill)   debouncedBill(state.bill);
+}
+
 
   // ======== REQUIRE RULES (optional) ========
   function passesRequireRule() {
