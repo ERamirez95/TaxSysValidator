@@ -1,13 +1,11 @@
-<!doctype html>
-<html lang="en">
+<!doctype html> 
+<html lang="en"> 
 <head>
     <meta charset="utf-8" />
     <title>TaxSys Validator (Parcel/Bill/Message)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-        :root {
-            color-scheme: light dark;
-        }
+        :root { color-scheme: light dark; }
 
         body {
             font: 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -21,16 +19,13 @@
             gap: 12px;
         }
 
-        .field {
-            display: block;
-        }
+        .field { display: block; }
 
         label {
             display: block;
             margin: 0 0 6px;
-            font-weight: 400;
+            font-weight: 400; /* no bold */
         }
-        /* no bold */
 
         input, textarea {
             width: 100%;
@@ -51,13 +46,8 @@
             font-size: 12px;
         }
 
-        .ok {
-            color: #156c1e;
-        }
-
-        .bad {
-            color: #9f1d1d;
-        }
+        .ok  { color: #156c1e; }
+        .bad { color: #9f1d1d; }
 
         .hint {
             opacity: .8;
@@ -65,9 +55,7 @@
             margin-top: 8px;
         }
 
-        .hidden {
-            display: none !important;
-        }
+        .hidden { display: none !important; }
 
         .substatus {
             font-size: 12px;
@@ -86,13 +74,13 @@
         </div>
         <div class="field" id="billField">
             <label for="bill" id="label_bill">Bill Number (Optional)</label>
+            <!-- bill: numeric keypad is fine -->
             <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="numeric" />
             <div id="m_bill" class="msg">We’ll verify this before you submit.</div>
         </div>
     </div>
 
-    <!-- made visible by default -->
-    <div id="msgWrap" class="field">
+    <div id="msgWrap" class="field hidden">
         <label for="freeText" id="label_message">Enter your message in the space provided below:</label>
         <textarea id="freeText" placeholder=""></textarea>
         <div id="m_message" class="msg">We’ll auto-detect parcel/bill numbers and validate them.</div>
@@ -111,7 +99,7 @@
   const UNIQUE_PARCEL = "typeA32";
   const UNIQUE_BILL   = "billNumber";
 
-  // ======== ENDPOINTS (unchanged) ========
+  // ======== ENDPOINTS ========
   let BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
   let PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
   let BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
@@ -121,8 +109,8 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
 
-  const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase(); // parcels
-  const onlyDigits = (s) => String(s || "").replace(/\D/g,"");                        // bills
+  // allow letters & digits; trim spaces; uppercase for consistency (parcels use this)
+  const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
 
   function requestResize() {
     try {
@@ -142,11 +130,13 @@
   }
 
   // ======== STRICT EXTRACTORS ========
+  // Parcel: exactly 13 alphanumeric
   function extractFirstParcel(s){
     const m = (s || "").match(new RegExp(`\\b[0-9A-Za-z]{${PARCEL_LEN}}\\b`, 'g')) || [];
     return normalizeToken(m[0] || "");
   }
 
+  // Bill: digits only, 11 or 9, with true numeric boundaries
   const RE_BILL_CANDIDATES = /\d{11}|\d{9}/g;
   const isDigit = (c) => c >= "0" && c <= "9";
   function isDigitBounded(text, startIdx, len) {
@@ -161,15 +151,19 @@
     for (const mm of matches) {
       const val = mm[0];
       const start = mm.index ?? str.indexOf(val);
-      if (isDigitBounded(str, start, val.length)) return val;
+      if (isDigitBounded(str, start, val.length)) return val; // keep digits only
     }
     return "";
   }
 
+  // numeric + length check for bills
   const looksLikeBillLen = (v) => (/^\d{9}$/.test(v || "") || /^\d{11}$/.test(v || ""));
 
-  // ======== QUERY PARAMS (labels only; no variant hiding) ========
+  // ======== QUERY PARAMS ========
   const params      = new URLSearchParams(location.search);
+  const variant     = (params.get("variant") || "both").toLowerCase();   // parcel | bill | both | message
+  const requireMode = (params.get("require") || "any").toLowerCase();    // any | both | parcel | bill | none
+
   const labelOverrides = {
     parcelLabel: safeDecode(params.get("parcelLabel")),
     billLabel:   safeDecode(params.get("billLabel")),
@@ -179,34 +173,27 @@
     messagePh:   safeDecode(params.get("messagePh")),
   };
 
+  // Optional endpoint overrides via URL: ?parcelsEndpoint=&billsEndpoint=&base=
+  const urlParcels = safeDecode(params.get("parcelsEndpoint"));
+  const urlBills   = safeDecode(params.get("billsEndpoint"));
+  const urlBase    = safeDecode(params.get("base"));
+  if (urlBase)   BASE = urlBase;
+  if (urlParcels) PARCEL_URL = (v) => `${urlParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+  if (urlBills)   BILL_URL   = (v) => `${urlBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+
   // ======== STATE ========
   const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
   let lastCheckedParcel = null, lastCheckedBill = null;
   let prevParcelCandidate = null, prevBillCandidate = null;
 
-  // ======== ENCODERS ========
-  // legacy pair encoder (kept in case you still need it elsewhere)
+  // ======== FIXED-WIDTH ENCODER (pipe only) ========
+  // Emits: "<13 parcel>|<11 bill>"
   function fixedEncode(p, b) {
     const P = normalizeToken(p);
-    const B = onlyDigits(b);
+    const B = String(b || "").replace(/\D/g, ""); // digits only for bill
     const p13 = (("0000000000000" + P).slice(-13)).slice(0,13);
     const b11 = (("00000000000"  + B).slice(-11)).slice(0,11);
     return `${p13}|${b11}`;
-  }
-
-  // NEW: compound-500 helpers
-  function toFixedLen(str, len, padChar = " ", padLeft = false) {
-    str = String(str || "");
-    if (str.length > len) return str.slice(0, len);
-    const pad = padChar.repeat(len - str.length);
-    return padLeft ? (pad + str) : (str + pad);
-  }
-  // "<500 msg>|<13 parcel>|<11 bill>"
-  function makeCompound500() {
-    const msg500   = toFixedLen(state.message || "", 500, " ", false);
-    const parcel13 = toFixedLen(state.parcel || "", 13, " ", false);     // spaces if blank
-    const bill11   = toFixedLen(onlyDigits(state.bill), 11, "0", true);  // zeros if blank
-    return `${msg500}|${parcel13}|${bill11}`;
   }
 
   // ======== BRIDGE to native fields (best-effort) ========
@@ -218,21 +205,31 @@
     populateFormField(UNIQUE_BILL,   state.bill   || "");
   }
 
-  // ======== WHAT THE WIDGET RETURNS (LIVE) ========
-  function getPayload(){ return makeCompound500(); } // always compound-500
-
+  // ======== EMIT TO JOTFORM (LIVE) ========
   function emitWidgetValue(){
-    const value = getPayload();
+    const fixed = fixedEncode(state.parcel, state.bill);
     if (window.JFCustomWidget) {
-      try { JFCustomWidget.setValue(value); } catch {}
-      try { JFCustomWidget.sendData({ valid: true, value }); } catch {}
+      try { JFCustomWidget.setValue(fixed); } catch {}
+      try { JFCustomWidget.sendData({ valid: true, value: fixed }); } catch {}
       requestResize();
     }
     syncToForm();
   }
 
   // ======== VALUE FOR SUBMIT ========
-  const currentSubmitValue = () => getPayload();
+  const currentSubmitValue = () => fixedEncode(state.parcel, state.bill);
+
+  // ======== UI ========
+  function applyVariantUI(){
+    const pb = $("pbWrap"), msg = $("msgWrap");
+    if (variant === "message"){ pb?.classList.add("hidden"); msg?.classList.remove("hidden"); }
+    else {
+      msg?.classList.add("hidden"); pb?.classList.remove("hidden");
+      if (variant === "parcel") $("billField")?.classList.add("hidden");
+      if (variant === "bill")   $("parcelField")?.classList.add("hidden");
+    }
+    requestResize();
+  }
 
   // ======== VALIDATORS ========
   async function validateParcel(raw, {alsoMsg=false} = {}){
@@ -266,7 +263,8 @@
   }
 
   async function validateBill(raw, {alsoMsg=false} = {}){
-    const val = onlyDigits(raw);
+    // keep only digits for bill validation
+    const val = String(raw || "").replace(/\D/g, "");
     if(!val){ state.bill=""; state.billOk=false; emitWidgetValue();
       say("m_bill","Enter a bill number or leave blank if none.");
       if (alsoMsg) sayLine("m_msg_bill","No bill detected.",""); return; }
@@ -279,7 +277,7 @@
     try{
       const r = await getJson(BILL_URL(val));
       if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
-        state.bill = onlyDigits(r.data.normalized || r.data.bill || val);
+        state.bill = String(r.data.normalized || r.data.bill || val).replace(/\D/g,"");
         state.billOk = true;
         emitWidgetValue(); say("m_bill","✓ Valid bill","ok");
         if (alsoMsg) sayLine("m_msg_bill",`✓ Bill ${state.bill} is valid`,"ok");
@@ -295,16 +293,16 @@
     }
   }
 
-  const debouncedParcel = debounce((v)=>validateParcel(v, {alsoMsg: true}), 250);
-  const debouncedBill   = debounce((v)=>validateBill(v,   {alsoMsg: true}), 250);
+  const debouncedParcel = debounce((v)=>validateParcel(v, {alsoMsg: variant==="message"}), 250);
+  const debouncedBill   = debounce((v)=>validateBill(v,   {alsoMsg: variant==="message"}), 250);
 
-  // ======== MESSAGE INPUT ========
+  // ======== MESSAGE VARIANT ========
   function onMessageInput(rawText){
     state.message = rawText || "";
     let candParcel = extractFirstParcel(rawText);
-    let candBill   = extractFirstBill(rawText);
+    let candBill   = extractFirstBill(rawText); // <-- fixed (digits only + numeric boundaries)
 
-    // resolve overlap edge case
+    // If both hit the same 13 chars (very rare), prefer the rule that fits best
     if (candParcel && candBill && candParcel === candBill) {
       if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
       else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
@@ -323,9 +321,26 @@
     if (state.bill)   debouncedBill(state.bill);
   }
 
-  // ======== REQUIRE RULES (optional, unchanged) ========
-  function passesRequireRule() { return true; }
-  function explainRequireFailure() {}
+  // ======== REQUIRE RULES (optional) ========
+  function passesRequireRule() {
+    switch (requireMode) {
+      case "none":   return true;
+      case "parcel": return !!state.parcel && state.parcelOk;
+      case "bill":   return !!state.bill   && state.billOk;
+      case "both":   return (!!state.parcel && state.parcelOk) && (!!state.bill && state.billOk);
+      case "any":
+      default:
+        const anyProvided = !!state.parcel || !!state.bill;
+        const anyValid    = (state.parcel && state.parcelOk) || (state.bill && state.billOk);
+        return anyProvided ? anyValid : true;
+    }
+  }
+  function explainRequireFailure() {
+    if (requireMode === "parcel")      say("m_parcel", "Parcel required and must be valid.", "bad");
+    else if (requireMode === "bill")   say("m_bill",   "Bill required and must be valid.", "bad");
+    else if (requireMode === "both") { if (!state.parcelOk) say("m_parcel","Parcel must be valid.","bad"); if (!state.billOk) say("m_bill","Bill must be valid.","bad"); }
+    else { if (state.parcel && !state.parcelOk) say("m_parcel","Parcel appears invalid.","bad"); if (state.bill && !state.billOk) say("m_bill","Bill appears invalid.","bad"); }
+  }
 
   // ======== BOOT ========
   (function init(){
@@ -337,15 +352,13 @@
     if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
     if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
 
-    // Always show both sections
-    $("msgWrap")?.classList.remove("hidden");
-    $("pbWrap")?.classList.remove("hidden");
+    applyVariantUI();
 
     // listeners
     document.addEventListener("input",  (e)=>{ if(e?.target?.id==="parcel"){ state.parcel=normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="parcel"){ state.parcel=normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
-    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="bill"){ state.bill=onlyDigits(e.target.value); emitWidgetValue(); debouncedBill(state.bill); }}, true);
-    document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ state.bill=onlyDigits(e.target.value); emitWidgetValue(); debouncedBill(state.bill); }}, true);
+    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="bill"){ state.bill=String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
+    document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ state.bill=String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
     document.addEventListener("input",  (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
 
@@ -365,15 +378,19 @@
       JFCustomWidget.subscribe("submit", async () => {
         if ($("freeText")) state.message = $("freeText").value || "";
         if ($("parcel"))   state.parcel  = normalizeToken($("parcel").value);
-        if ($("bill"))     state.bill    = onlyDigits($("bill").value);
+        if ($("bill"))     state.bill    = String($("bill").value||"").replace(/\D/g,"");
 
-        // optional re-validate
         const needsParcelCheck = state.parcel && !state.parcelOk && state.parcel.length === PARCEL_LEN;
         const needsBillCheck   = state.bill   && !state.billOk   && looksLikeBillLen(state.bill);
         if (needsParcelCheck) await validateParcel(state.parcel);
         if (needsBillCheck)   await validateBill(state.bill);
 
-        if (!passesRequireRule()) { explainRequireFailure(); try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {} try { JFCustomWidget.sendSubmit(false); } catch {} return; }
+        if (!passesRequireRule()) {
+          explainRequireFailure();
+          try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {}
+          try { JFCustomWidget.sendSubmit(false); } catch {}
+          return;
+        }
 
         const payload = currentSubmitValue();
         try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
