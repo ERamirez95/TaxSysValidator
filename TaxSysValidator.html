@@ -81,19 +81,19 @@
         <div class="field" id="parcelField">
             <label for="parcel" id="label_parcel">Parcel Number (Optional)</label>
             <input id="parcel" placeholder="Enter parcel number" autocomplete="off" inputmode="text" />
-            <div id="m_parcel" class="msg">We’ll verify this before you submit.</div>
+            <div id="m_parcel" class="msg">We'll verify this before you submit.</div>
         </div>
         <div class="field" id="billField">
             <label for="bill" id="label_bill">Bill Number (Optional)</label>
             <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="numeric" />
-            <div id="m_bill" class="msg">We’ll verify this before you submit.</div>
+            <div id="m_bill" class="msg">We'll verify this before you submit.</div>
         </div>
     </div>
 
     <div id="msgWrap" class="field hidden">
         <label for="freeText" id="label_message">Enter your message in the space provided below:</label>
         <textarea id="freeText" placeholder=""></textarea>
-        <div id="m_message" class="msg">We’ll auto-detect parcel/bill numbers and validate them.</div>
+        <div id="m_message" class="msg">We'll auto-detect parcel/bill numbers and validate them.</div>
         <div class="substatus" id="m_msg_parcel">No parcel detected.</div>
         <div class="substatus" id="m_msg_bill">No bill detected.</div>
     </div>
@@ -391,39 +391,51 @@
 
     applyVariantUI();
 
-    // PARCEL input -> set value and lock while non-empty
+    // PARCEL input -> lock on ANY manual interaction
     document.addEventListener("input",  (e)=>{
       if(e?.target?.id==="parcel"){
+        parcelLocked = true; // Lock immediately when user touches this field
         state.parcel = normalizeToken(e.target.value);
-        parcelLocked = !!state.parcel;
         emitWidgetValue();
         debouncedParcel(e.target.value);
       }
     }, true);
     document.addEventListener("change", (e)=>{
       if(e?.target?.id==="parcel"){
+        parcelLocked = true; // Lock immediately when user touches this field
         state.parcel = normalizeToken(e.target.value);
-        parcelLocked = !!state.parcel;
         emitWidgetValue();
         debouncedParcel(e.target.value);
+      }
+    }, true);
+    // Lock on focus - indicates user intent to manually enter
+    document.addEventListener("focus", (e)=>{
+      if(e?.target?.id==="parcel"){
+        parcelLocked = true;
       }
     }, true);
 
-    // BILL input -> set value and lock while non-empty
+    // BILL input -> lock on ANY manual interaction
     document.addEventListener("input",  (e)=>{
       if(e?.target?.id==="bill"){
+        billLocked = true; // Lock immediately when user touches this field
         state.bill = String(e.target.value||"").replace(/\D/g,"");
-        billLocked = !!state.bill;
         emitWidgetValue();
         debouncedBill(state.bill);
       }
     }, true);
     document.addEventListener("change", (e)=>{
       if(e?.target?.id==="bill"){
+        billLocked = true; // Lock immediately when user touches this field
         state.bill = String(e.target.value||"").replace(/\D/g,"");
-        billLocked = !!state.bill;
         emitWidgetValue();
         debouncedBill(state.bill);
+      }
+    }, true);
+    // Lock on focus
+    document.addEventListener("focus", (e)=>{
+      if(e?.target?.id==="bill"){
+        billLocked = true;
       }
     }, true);
 
