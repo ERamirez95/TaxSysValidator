@@ -182,8 +182,12 @@
   if (urlParcels) PARCEL_URL = (v) => `${urlParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
   if (urlBills)   BILL_URL   = (v) => `${urlBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
 
-  // NEW: quick, low-risk toggle so message variant doesn't write back unless enabled
-  const writeFromMessage = (params.get("writeMessage") === "1"); // default false
+  // NEW: control whether the message box extracts numbers
+  // Default: only when variant === "message". Opt-in for "both" via ?detectFromMessage=1
+  const detectFromMessage = (params.get("detectFromMessage") === "1") || (variant === "message");
+
+  // Keep earlier safeguard: message variant doesn't write to form unless ?writeMessage=1
+  const writeFromMessage = (params.get("writeMessage") === "1");
 
   // ======== STATE ========
   const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
@@ -218,8 +222,8 @@
     try { window.parent.postMessage({ action: "populate", field: uniqueName, value: value ?? "" }, "*"); } catch {}
   }
 
-  // *** UPDATED: don't let the message variant write back unless explicitly enabled;
-  // also only write validated, non-empty values so nothing gets cleared accidentally.
+  // Only write validated, non-empty values.
+  // And don't let the "message" variant write back unless explicitly enabled.
   function syncToForm() {
     if (variant !== "message" || writeFromMessage) {
       if (state.parcelOk && state.parcel) populateFormField(UNIQUE_PARCEL, state.parcel);
@@ -327,6 +331,9 @@
   function onMessageInput(rawText){
     state.message = rawText || "";
 
+    // If detection is disabled (variant != message and no ?detectFromMessage=1), do nothing else.
+    if (!detectFromMessage) { emitWidgetValue(); return; }
+
     let candParcel = extractFirstParcel(rawText);
     let candBill   = extractFirstBill(rawText);
 
@@ -341,7 +348,7 @@
     prevParcelCandidate = candParcel || null;
     prevBillCandidate   = candBill   || null;
 
-    // Only update from message if user hasn't typed in the top inputs (locks)
+    // Only update from message if user hasn't typed a value in the top inputs (locks)
     if (candParcel && !parcelLocked) state.parcel = candParcel;
     if (candBill   && !billLocked)   state.bill   = candBill;
 
