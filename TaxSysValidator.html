@@ -182,12 +182,15 @@
   if (urlParcels) PARCEL_URL = (v) => `${urlParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
   if (urlBills)   BILL_URL   = (v) => `${urlBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
 
+  // NEW: quick, low-risk toggle so message variant doesn't write back unless enabled
+  const writeFromMessage = (params.get("writeMessage") === "1"); // default false
+
   // ======== STATE ========
   const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
   let lastCheckedParcel = null, lastCheckedBill = null;
   let prevParcelCandidate = null, prevBillCandidate = null;
 
-  // NEW: lock flags to prevent message from overwriting manual entries
+  // Prevent message-driven extraction from clobbering manual entries
   let parcelLocked = false;
   let billLocked   = false;
 
@@ -207,16 +210,21 @@
   function makeCompound500() {
     const msg500 = padRight(state.message || "", 500, " ");
     const pair   = fixedEncode(state.parcel, state.bill);
-    return `${msg500}|${pair}`; // 500 + "|" + 13 + "|" + 11
+    return `${msg500}|${pair}`;
   }
 
   // ======== BRIDGE ========
   function populateFormField(uniqueName, value) {
     try { window.parent.postMessage({ action: "populate", field: uniqueName, value: value ?? "" }, "*"); } catch {}
   }
+
+  // *** UPDATED: don't let the message variant write back unless explicitly enabled;
+  // also only write validated, non-empty values so nothing gets cleared accidentally.
   function syncToForm() {
-    populateFormField(UNIQUE_PARCEL, state.parcel || "");
-    populateFormField(UNIQUE_BILL,   state.bill   || "");
+    if (variant !== "message" || writeFromMessage) {
+      if (state.parcelOk && state.parcel) populateFormField(UNIQUE_PARCEL, state.parcel);
+      if (state.billOk   && state.bill)   populateFormField(UNIQUE_BILL,   state.bill);
+    }
   }
 
   // ======== EMIT ========
@@ -246,12 +254,16 @@
   // ======== VALIDATORS ========
   async function validateParcel(raw, {alsoMsg=false} = {}){
     const val = normalizeToken(raw);
-    if(!val){ state.parcel=""; state.parcelOk=false; emitWidgetValue();
+    if(!val){
+      state.parcel=""; state.parcelOk=false; emitWidgetValue();
       say("m_parcel","Enter a parcel number or leave blank if none.");
-      if (alsoMsg) sayLine("m_msg_parcel","No parcel detected.",""); return; }
-    if (val.length !== PARCEL_LEN){ state.parcel=""; state.parcelOk=false; emitWidgetValue();
+      if (alsoMsg) sayLine("m_msg_parcel","No parcel detected.",""); return;
+    }
+    if (val.length !== PARCEL_LEN){
+      state.parcel=""; state.parcelOk=false; emitWidgetValue();
       say("m_parcel",`Parcel must be ${PARCEL_LEN} characters.`,"bad");
-      if (alsoMsg) sayLine("m_msg_parcel",`Parcel must be ${PARCEL_LEN} characters.`,"bad"); return; }
+      if (alsoMsg) sayLine("m_msg_parcel",`Parcel must be ${PARCEL_LEN} characters.`,"bad"); return;
+    }
     if (val === lastCheckedParcel && prevParcelCandidate === val) return;
     lastCheckedParcel = val;
     say("m_parcel","Validating parcel…"); if (alsoMsg) sayLine("m_msg_parcel","Validating parcel…","");
@@ -276,12 +288,16 @@
 
   async function validateBill(raw, {alsoMsg=false} = {}){
     const val = String(raw || "").replace(/\D/g, "");
-    if(!val){ state.bill=""; state.billOk=false; emitWidgetValue();
+    if(!val){
+      state.bill=""; state.billOk=false; emitWidgetValue();
       say("m_bill","Enter a bill number or leave blank if none.");
-      if (alsoMsg) sayLine("m_msg_bill","No bill detected.",""); return; }
-    if (!looksLikeBillLen(val)){ state.bill=""; state.billOk=false; emitWidgetValue();
+      if (alsoMsg) sayLine("m_msg_bill","No bill detected.",""); return;
+    }
+    if (!looksLikeBillLen(val)){
+      state.bill=""; state.billOk=false; emitWidgetValue();
       say("m_bill","Bill numbers are 9 or 11 digits.","bad");
-      if (alsoMsg) sayLine("m_msg_bill","Bill numbers are 9 or 11 digits.","bad"); return; }
+      if (alsoMsg) sayLine("m_msg_bill","Bill numbers are 9 or 11 digits.","bad"); return;
+    }
     if (val === lastCheckedBill && prevBillCandidate === val) return;
     lastCheckedBill = val;
     say("m_bill","Validating bill…"); if (alsoMsg) sayLine("m_msg_bill","Validating bill…","");
@@ -325,7 +341,7 @@
     prevParcelCandidate = candParcel || null;
     prevBillCandidate   = candBill   || null;
 
-    // Only update from message if the user hasn't typed a value in the top inputs (lock off)
+    // Only update from message if user hasn't typed in the top inputs (locks)
     if (candParcel && !parcelLocked) state.parcel = candParcel;
     if (candBill   && !billLocked)   state.bill   = candBill;
 
