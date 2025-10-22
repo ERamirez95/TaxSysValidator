@@ -76,7 +76,7 @@
             border-radius: var(--radius);
             background: #fff;
             outline: none;
-            transition: border-color .15s ease,box-shadow .15s ease;
+            transition: border-color .15s ease, box-shadow .15s ease;
             font-size: 16px
         }
 
@@ -123,11 +123,11 @@
             margin-top: 6px;
             color: var(--muted)
         }
-            /* ensure state colors win under message variant */
+
             .substatus.bad {
                 color: #9f1d1d
             }
-
+            /* make message-variant errors red */
             .substatus.ok {
                 color: #156c1e
             }
@@ -149,12 +149,13 @@
 <body>
     <div id="pbWrap" class="row">
         <div class="field" id="parcelField">
-            <label for="parcel" id="label_parcel">Parcel Number(Optional)</label>
+            <!-- keep default text; JS will append (Optional) as needed -->
+            <label for="parcel" id="label_parcel">Parcel Number (Optional)</label>
             <input id="parcel" placeholder="Enter parcel number (Optional)" autocomplete="off" inputmode="text" />
             <div id="m_parcel" class="msg">We'll verify this before you submit.</div>
         </div>
         <div class="field" id="billField">
-            <label for="bill" id="label_bill">Bill Number(Optional)</label>
+            <label for="bill" id="label_bill">Bill Number (Optional)</label>
             <input id="bill" placeholder="Enter bill number (Optional)" autocomplete="off" inputmode="numeric" />
             <div id="m_bill" class="msg">We'll verify this before you submit.</div>
         </div>
@@ -317,12 +318,13 @@
     requestResize();
   }
 
-  // Keep labels stable and append "(Optional)" via <span>
+  // Append "(Optional)" based on the CURRENT label text (keeps query overrides intact)
   function ensureOptionalLabel(el, required) {
     if (!el) return;
-    const base = (el.getAttribute("data-base") || el.textContent || "").replace(/\s*\(Optional\)\s*$/i, "");
-    el.setAttribute("data-base", base);
+    const raw  = el.textContent || "";
+    const base = raw.replace(/\s*\(Optional\)\s*$/i, "");   // strip any existing suffix from HTML or overrides
     el.textContent = base;
+    // remove any prior span we added
     el.querySelectorAll(".optional").forEach(n => n.remove());
     if (!required) {
       const opt = document.createElement("span");
@@ -332,7 +334,7 @@
     }
   }
 
-  // ======== VALIDATORS ========
+  // ======== VALIDATORS (unchanged) ========
   async function validateParcel(raw, {alsoMsg=false} = {}){
     const val = normalizeToken(raw);
     if(!val){
@@ -362,7 +364,7 @@
         state.parcel=""; state.parcelOk=false; emitWidgetValue();
         const msg = "✗ Invalid parcel number. Please check and retype again";
         say("m_parcel", msg, "bad");
-        sayLine("m_msg_parcel", msg, "bad");  // mirror exact wording + red
+        sayLine("m_msg_parcel", msg, "bad");
       }
     }catch{
       state.parcel=""; state.parcelOk=false; emitWidgetValue();
@@ -400,7 +402,7 @@
         state.bill=""; state.billOk=false; emitWidgetValue();
         const msg = "✗ Invalid bill number. Please check and retype again";
         say("m_bill", msg, "bad");
-        sayLine("m_msg_bill", msg, "bad");  // mirror exact wording + red
+        sayLine("m_msg_bill", msg, "bad");
       }
     }catch{
       state.bill=""; state.billOk=false; emitWidgetValue();
@@ -415,6 +417,7 @@
   // ======== MESSAGE VARIANT ========
   function onMessageInput(rawText){
     state.message = rawText || "";
+
     if (!detectFromMessage) { emitWidgetValue(); return; }
 
     let candParcel = extractFirstParcel(rawText);
@@ -463,15 +466,15 @@
 
   // ======== BOOT ========
   (function init(){
-    // label/placeholder overrides from querystring
-    if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l){ l.setAttribute("data-base", labelOverrides.parcelLabel); l.textContent=labelOverrides.parcelLabel; } }
-    if (labelOverrides.billLabel){   const l=$("label_bill");   if(l){ l.setAttribute("data-base", labelOverrides.billLabel);   l.textContent=labelOverrides.billLabel;   } }
+    // label/placeholder overrides from querystring (NO data-base usage)
+    if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l){ l.textContent = labelOverrides.parcelLabel; } }
+    if (labelOverrides.billLabel){   const l=$("label_bill");   if(l){ l.textContent = labelOverrides.billLabel;   } }
     if (labelOverrides.messageLabel){ const l=$("label_message"); if(l) l.textContent=labelOverrides.messageLabel; }
     if (labelOverrides.parcelPh && $("parcel")) $("parcel").placeholder = labelOverrides.parcelPh;
     if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
     if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
 
-    // "(Optional)" logic AFTER overrides
+    // Apply "(Optional)" suffix AFTER overrides, based on requireMode
     const parcelRequired = (requireMode === "parcel" || requireMode === "both");
     const billRequired   = (requireMode === "bill"   || requireMode === "both");
     ensureOptionalLabel($("label_parcel"), parcelRequired);
@@ -479,45 +482,15 @@
 
     applyVariantUI();
 
-    // PARCEL input
-    document.addEventListener("input",  (e)=>{
-      if(e?.target?.id==="parcel"){
-        parcelLocked = true;
-        state.parcel = normalizeToken(e.target.value);
-        emitWidgetValue();
-        debouncedParcel(e.target.value);
-      }
-    }, true);
-    document.addEventListener("change", (e)=>{
-      if(e?.target?.id==="parcel"){
-        parcelLocked = true;
-        state.parcel = normalizeToken(e.target.value);
-        emitWidgetValue();
-        debouncedParcel(e.target.value);
-      }
-    }, true);
-    document.addEventListener("focus", (e)=>{ if(e?.target?.id==="parcel"){ parcelLocked = true; } }, true);
+    // Inputs
+    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="parcel"){ parcelLocked = true; state.parcel = normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
+    document.addEventListener("change", (e)=>{ if(e?.target?.id==="parcel"){ parcelLocked = true; state.parcel = normalizeToken(e.target.value); emitWidgetValue(); debouncedParcel(e.target.value); }}, true);
+    document.addEventListener("focus",  (e)=>{ if(e?.target?.id==="parcel"){ parcelLocked = true; }}, true);
 
-    // BILL input
-    document.addEventListener("input",  (e)=>{
-      if(e?.target?.id==="bill"){
-        billLocked = true;
-        state.bill = String(e.target.value||"").replace(/\D/g,"");
-        emitWidgetValue();
-        debouncedBill(state.bill);
-      }
-    }, true);
-    document.addEventListener("change", (e)=>{
-      if(e?.target?.id==="bill"){
-        billLocked = true;
-        state.bill = String(e.target.value||"").replace(/\D/g,"");
-        emitWidgetValue();
-        debouncedBill(state.bill);
-      }
-    }, true);
-    document.addEventListener("focus", (e)=>{ if(e?.target?.id==="bill"){ billLocked = true; } }, true);
+    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="bill"){ billLocked = true; state.bill = String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
+    document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ billLocked = true; state.bill = String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
+    document.addEventListener("focus",  (e)=>{ if(e?.target?.id==="bill"){ billLocked = true; }}, true);
 
-    // MESSAGE input
     document.addEventListener("input",  (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
 
