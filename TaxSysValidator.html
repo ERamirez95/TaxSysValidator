@@ -192,7 +192,7 @@
   function isDigitBounded(text, startIdx, len) {
     const endIdx = startIdx + len;
     const prev = startIdx > 0 ? text[startIdx - 1] : "";
-    the next = endIdx < text.length ? text[endIdx] : "";
+    const next = endIdx < text.length ? text[endIdx] : "";
     return !isDigit(prev) && !isDigit(next);
   }
   function extractFirstBill(s){
