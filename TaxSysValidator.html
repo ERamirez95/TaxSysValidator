@@ -9,18 +9,33 @@
             color-scheme: light dark;
         }
 
+        /* design tokens you can tweak */
+        :root {
+            --label: #4a4a4a; /* darker label like JotForm */
+            --muted: #6b7280; /* helper text */
+            --placeholder: #9ca3af;
+            --text: #111827;
+            --border: #e5e7eb;
+            --border-hover: #d1d5db;
+            --ring: #2563eb;
+            --radius: 8px;
+            --gap: 16px;
+            --input-h: 44px; /* ≈ JotForm input height */
+            --ta-min-h: 240px; /* textarea height like reference */
+        }
+
         body {
             font: 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
             margin: 0;
             padding: 10px;
-            color: #111827; /* neutral-900 */
+            color: var(--text);
         }
 
-        /* Layout */
+        /* layout */
         .row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 16px; /* more breathing room like the ref */
+            gap: var(--gap);
         }
 
         @media (max-width: 900px) {
@@ -33,26 +48,16 @@
             display: block;
         }
 
-        /* Reference look & feel tokens */
-        :root {
-            --label: #6b7280; /* muted label gray */
-            --placeholder: #9ca3af; /* lighter helper text */
-            --border: #e5e7eb; /* light border */
-            --border-hover: #d1d5db; /* hover border */
-            --ring: #2563eb; /* blue focus ring */
-            --radius: 8px;
-        }
-
-        /* Labels: lighter weight, muted tone, extra margin */
+        /* labels – darker and a touch more presence */
         label {
             display: block;
             margin: 0 0 8px;
-            font-weight: 400; /* not bold */
+            font-weight: 400; /* keep not-bold, just darker */
             color: var(--label);
             line-height: 1.25rem;
         }
 
-        /* Inputs + textarea: padding, border, radius, transitions */
+        /* inputs + textarea */
         input,
         textarea {
             width: 100%;
@@ -63,6 +68,12 @@
             background: #fff;
             outline: none;
             transition: border-color .15s ease, box-shadow .15s ease;
+            font-size: 14px;
+        }
+
+        /* explicit input height to match native fields */
+        input {
+            height: var(--input-h);
         }
 
             input:hover,
@@ -73,11 +84,11 @@
             input:focus,
             textarea:focus {
                 border-color: var(--ring);
-                box-shadow: 0 0 0 3px rgb(37 99 235 / 12%); /* soft blue halo */
+                box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
             }
 
         textarea {
-            min-height: 200px; /* roomier like the reference */
+            min-height: var(--ta-min-h);
             resize: vertical;
         }
 
@@ -85,28 +96,27 @@
             color: var(--placeholder);
         }
 
-        /* Messages */
+        /* messages */
         .msg {
             margin-top: 6px;
             min-height: 1.1rem;
             font-size: 12px;
-            color: #6b7280; /* muted by default */
+            color: var(--muted);
         }
 
         .ok {
             color: #156c1e;
         }
-        /* success */
+
         .bad {
             color: #9f1d1d;
         }
-        /* error */
 
         .hint {
             opacity: .8;
             font-size: 12px;
             margin-top: 8px;
-            color: #6b7280;
+            color: var(--muted);
         }
 
         .hidden {
@@ -117,9 +127,10 @@
             font-size: 12px;
             opacity: .9;
             margin-top: 6px;
-            color: #6b7280;
+            color: var(--muted);
         }
     </style>
+
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
