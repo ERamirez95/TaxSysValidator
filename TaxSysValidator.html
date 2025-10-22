@@ -147,11 +147,18 @@
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-    <div class="label-like" id="parcelLabel">Parcel Number <span class="optional">(Optional)</span></div>
-    <input id="parcel" aria-labelledby="parcelLabel" placeholder="Enter parcel number" ... />
-
-    <div class="label-like" id="billLabel">Bill Number <span class="optional">(Optional)</span></div>
-    <input id="bill" aria-labelledby="billLabel" placeholder="Enter bill number" ... />
+    <div id="pbWrap" class="row">
+        <div class="field" id="parcelField">
+            <label for="parcel" id="label_parcel">Parcel Number(Optional)</label>
+            <input id="parcel" placeholder="Enter parcel number (Optional)" autocomplete="off" inputmode="text" />
+            <div id="m_parcel" class="msg">We'll verify this before you submit.</div>
+        </div>
+        <div class="field" id="billField">
+            <label for="bill" id="label_bill">Bill Number(Optional)</label>
+            <input id="bill" placeholder="Enter bill number (Optional)" autocomplete="off" inputmode="numeric" />
+            <div id="m_bill" class="msg">We'll verify this before you submit.</div>
+        </div>
+    </div>
 
     <div id="msgWrap" class="field hidden">
         <label for="freeText" id="label_message">Enter your message in the space provided below:</label>
