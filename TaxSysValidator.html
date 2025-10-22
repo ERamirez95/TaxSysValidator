@@ -9,9 +9,9 @@
             color-scheme: light dark;
         }
 
-        /* design tokens you can tweak */
+        /* === Tokens (match JotForm) === */
         :root {
-            --label: #4a4a4a; /* darker label like JotForm */
+            --label: #4a4a4a; /* darker like native form */
             --muted: #6b7280; /* helper text */
             --placeholder: #9ca3af;
             --text: #111827;
@@ -20,25 +20,28 @@
             --ring: #2563eb;
             --radius: 8px;
             --gap: 16px;
-            --input-h: 44px; /* ≈ JotForm input height */
-            --ta-min-h: 240px; /* textarea height like reference */
+            /* Sizes from your screenshots */
+            --input-h: 44px; /* textboxes ≈44px tall */
+            --ta-min-h: 240px; /* textarea roomy like ref */
+            --li-padding-v: 12px; /* li padding in your devtools */
+            --li-padding-h: 10px;
         }
 
         body {
-            font: 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+            /* JotForm shows 16px Inter; bump to 16 to match */
+            font: 16px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
             margin: 0;
             padding: 10px;
             color: var(--text);
         }
 
-        /* layout */
         .row {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: var(--gap);
         }
 
-        @media (max-width: 900px) {
+        @media (max-width:900px) {
             .row {
                 grid-template-columns: 1fr;
             }
@@ -48,18 +51,17 @@
             display: block;
         }
 
-        /* labels – darker and a touch more presence */
+        /* Labels — bold + darker like your base form */
         label {
             display: block;
             margin: 0 0 8px;
-            font-weight: 400; /* keep not-bold, just darker */
+            font-weight: 600;
             color: var(--label);
             line-height: 1.25rem;
         }
 
-        /* inputs + textarea */
-        input,
-        textarea {
+        /* Inputs + textarea (exact heights + halo) */
+        input, textarea {
             width: 100%;
             padding: 12px 14px;
             box-sizing: border-box;
@@ -68,35 +70,32 @@
             background: #fff;
             outline: none;
             transition: border-color .15s ease, box-shadow .15s ease;
-            font-size: 14px;
+            font-size: 16px;
         }
 
-        /* explicit input height to match native fields */
         input {
             height: var(--input-h);
         }
-
-            input:hover,
-            textarea:hover {
-                border-color: var(--border-hover);
-            }
-
-            input:focus,
-            textarea:focus {
-                border-color: var(--ring);
-                box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
-            }
 
         textarea {
             min-height: var(--ta-min-h);
             resize: vertical;
         }
 
+            input:hover, textarea:hover {
+                border-color: var(--border-hover);
+            }
+
+            input:focus, textarea:focus {
+                border-color: var(--ring);
+                box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+            }
+
         ::placeholder {
             color: var(--placeholder);
         }
 
-        /* messages */
+        /* Helper/status text */
         .msg {
             margin-top: 6px;
             min-height: 1.1rem;
@@ -112,6 +111,13 @@
             color: #9f1d1d;
         }
 
+        .substatus {
+            font-size: 12px;
+            opacity: .9;
+            margin-top: 6px;
+            color: var(--muted);
+        }
+
         .hint {
             opacity: .8;
             font-size: 12px;
@@ -123,11 +129,9 @@
             display: none !important;
         }
 
-        .substatus {
-            font-size: 12px;
-            opacity: .9;
-            margin-top: 6px;
-            color: var(--muted);
+        /* Optional: mimic li paddings from your inspector readout */
+        .field {
+            padding: var(--li-padding-v) var(--li-padding-h);
         }
     </style>
 
