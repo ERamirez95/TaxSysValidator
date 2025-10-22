@@ -27,31 +27,31 @@
 
         html, body {
             width: 100%;
-            max-width: 100%;
+            max-width: 100%
         }
 
         body {
-            font: 16px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+            font: 16px Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
             margin: 0;
             padding: 0;
-            color: var(--text);
+            color: var(--text)
         }
 
         .row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: var(--gap);
+            gap: var(--gap)
         }
 
         @media (max-width:900px) {
             .row {
-                grid-template-columns: 1fr;
+                grid-template-columns: 1fr
             }
         }
 
         .field {
             display: block;
-            padding: var(--li-padding-v) 0;
+            padding: var(--li-padding-v) 0
         }
 
         label {
@@ -59,7 +59,12 @@
             margin: 0 0 8px;
             font-weight: 600;
             color: var(--label);
-            line-height: 1.25rem;
+            line-height: 1.25rem
+        }
+
+        .optional {
+            font-weight: 400;
+            color: var(--muted)
         }
 
         input, textarea {
@@ -71,63 +76,71 @@
             border-radius: var(--radius);
             background: #fff;
             outline: none;
-            transition: border-color .15s ease, box-shadow .15s ease;
-            font-size: 16px;
+            transition: border-color .15s ease,box-shadow .15s ease;
+            font-size: 16px
         }
 
         input {
-            height: var(--input-h);
+            height: var(--input-h)
         }
 
         textarea {
             min-height: var(--ta-min-h);
-            resize: vertical;
+            resize: vertical
         }
 
             input:hover, textarea:hover {
-                border-color: var(--border-hover);
+                border-color: var(--border-hover)
             }
 
             input:focus, textarea:focus {
                 border-color: var(--ring);
-                box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+                box-shadow: 0 0 0 3px rgb(37 99 235 / 12%)
             }
 
         ::placeholder {
-            color: var(--placeholder);
+            color: var(--placeholder)
         }
 
         .msg {
             margin-top: 6px;
             min-height: 1.1rem;
             font-size: 12px;
-            color: var(--muted);
+            color: var(--muted)
         }
 
         .ok {
-            color: #156c1e;
+            color: #156c1e
         }
 
         .bad {
-            color: #9f1d1d;
+            color: #9f1d1d
         }
 
         .substatus {
             font-size: 12px;
             opacity: .9;
             margin-top: 6px;
-            color: var(--muted);
+            color: var(--muted)
         }
+            /* ensure state colors win under message variant */
+            .substatus.bad {
+                color: #9f1d1d
+            }
+
+            .substatus.ok {
+                color: #156c1e
+            }
 
         .hint {
             opacity: .8;
             font-size: 12px;
             margin-top: 8px;
-            color: var(--muted);
+            color: var(--muted)
         }
 
         .hidden {
-            display: none !important;
+            display: none !important
         }
     </style>
 
@@ -136,12 +149,12 @@
 <body>
     <div id="pbWrap" class="row">
         <div class="field" id="parcelField">
-            <label for="parcel" id="label_parcel">Parcel Number (Optional)</label>
+            <label for="parcel" id="label_parcel">Parcel Number<span class="optional"> (Optional)</span></label>
             <input id="parcel" placeholder="Enter parcel number" autocomplete="off" inputmode="text" />
             <div id="m_parcel" class="msg">We'll verify this before you submit.</div>
         </div>
         <div class="field" id="billField">
-            <label for="bill" id="label_bill">Bill Number (Optional)</label>
+            <label for="bill" id="label_bill">Bill Number<span class="optional"> (Optional)</span></label>
             <input id="bill" placeholder="Enter bill number" autocomplete="off" inputmode="numeric" />
             <div id="m_bill" class="msg">We'll verify this before you submit.</div>
         </div>
@@ -158,392 +171,396 @@
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
 
     <script>
-    // ======== CONFIG ========
-    const PARCEL_LEN = 13;
-    const BILL_LENS  = [9, 11];
+  // ======== CONFIG ========
+  const PARCEL_LEN = 13;
+  const BILL_LENS  = [9, 11];
 
-    const UNIQUE_PARCEL = "typeA32";
-    const UNIQUE_BILL   = "billNumber";
+  const UNIQUE_PARCEL = "typeA32";
+  const UNIQUE_BILL   = "billNumber";
 
-    // ======== ENDPOINTS ========
-    let BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
-    let PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
-    let BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
+  // ======== ENDPOINTS ========
+  let BASE = "https://zendeskfunctionapp-egfydygfdmavfxg9.westus-01.azurewebsites.net";
+  let PARCEL_URL = (v) => `${BASE}/api/public/parcels/${encodeURIComponent(v)}`;
+  let BILL_URL   = (v) => `${BASE}/api/public/bills/${encodeURIComponent(v)}`;
 
-    // ======== UTILS ========
-    const $ = (id) => document.getElementById(id);
-    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-    const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
-    const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+  // ======== UTILS ========
+  const $ = (id) => document.getElementById(id);
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+  const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
+  const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
 
-    function requestResize() {
-      try {
-        const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, 180);
-        if (window.JFCustomWidget?.requestFrameResize) JFCustomWidget.requestFrameResize({ height: h });
-        else if (window.JFCustomWidget?.setHeight)     JFCustomWidget.setHeight(h);
-      } catch {}
+  function requestResize() {
+    try {
+      const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, 180);
+      if (window.JFCustomWidget?.requestFrameResize) JFCustomWidget.requestFrameResize({ height: h });
+      else if (window.JFCustomWidget?.setHeight)     JFCustomWidget.setHeight(h);
+    } catch {}
+  }
+
+  const say = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "msg "+(cls||""); e.textContent = txt || ""; requestResize(); };
+  const sayLine = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "substatus "+(cls||""); e.textContent = txt || ""; requestResize(); };
+
+  async function getJson(url){
+    const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store" });
+    let data=null; try{ data=await res.json(); }catch{}
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  // ======== EXTRACTORS ========
+  function extractFirstParcel(s){
+    const m = (s || "").match(new RegExp(`\\b[0-9A-Za-z]{${PARCEL_LEN}}\\b`, 'g')) || [];
+    return normalizeToken(m[0] || "");
+  }
+  const RE_BILL_CANDIDATES = /\d{11}|\d{9}/g;
+  const isDigit = (c) => c >= "0" && c <= "9";
+  function isDigitBounded(text, startIdx, len) {
+    const endIdx = startIdx + len;
+    const prev = startIdx > 0 ? text[startIdx - 1] : "";
+    const next = endIdx < text.length ? text[endIdx] : "";
+    return !isDigit(prev) && !isDigit(next);
+  }
+  function extractFirstBill(s){
+    const str = s || "";
+    const matches = [...str.matchAll(RE_BILL_CANDIDATES)];
+    for (const mm of matches) {
+      const val = mm[0];
+      const start = mm.index ?? str.indexOf(val);
+      if (isDigitBounded(str, start, val.length)) return val;
     }
+    return "";
+  }
+  const looksLikeBillLen = (v) => (/^\d{9}$/.test(v || "") || /^\d{11}$/.test(v || ""));
 
-    const say = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "msg "+(cls||""); e.textContent = txt || ""; requestResize(); };
-    const sayLine = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "substatus "+(cls||""); e.textContent = txt || ""; requestResize(); };
+  // ======== QUERY PARAMS ========
+  const params      = new URLSearchParams(location.search);
+  const variant     = (params.get("variant") || "both").toLowerCase();
+  const requireMode = (params.get("require") || "any").toLowerCase();
 
-    async function getJson(url){
-      const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store" });
-      let data=null; try{ data=await res.json(); }catch{}
-      return { ok: res.ok, status: res.status, data };
+  const labelOverrides = {
+    parcelLabel: safeDecode(params.get("parcelLabel")),
+    billLabel:   safeDecode(params.get("billLabel")),
+    parcelPh:    safeDecode(params.get("parcelPh")),
+    billPh:      safeDecode(params.get("billPh")),
+    messageLabel:safeDecode(params.get("messageLabel")),
+    messagePh:   safeDecode(params.get("messagePh")),
+  };
+
+  const urlParcels = safeDecode(params.get("parcelsEndpoint"));
+  const urlBills   = safeDecode(params.get("billsEndpoint"));
+  const urlBase    = safeDecode(params.get("base"));
+  if (urlBase)   BASE = urlBase;
+  if (urlParcels) PARCEL_URL = (v) => `${urlParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+  if (urlBills)   BILL_URL   = (v) => `${urlBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+
+  // Should message box extract numbers?
+  const detectFromMessage = (params.get("detectFromMessage") === "1") || (variant === "message");
+  const writeFromMessage  = (params.get("writeMessage") === "1");
+
+  // ======== STATE ========
+  const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
+  let lastCheckedParcel = null, lastCheckedBill = null;
+  let prevParcelCandidate = null, prevBillCandidate = null;
+
+  let parcelLocked = false;
+  let billLocked   = false;
+
+  // ======== ENCODING ========
+  function fixedEncode(p, b) {
+    const P = normalizeToken(p);
+    const B = String(b || "").replace(/\D/g, "");
+    const p13 = (("0000000000000" + P).slice(-13)).slice(0,13);
+    const b11 = (("00000000000"  + B).slice(-11)).slice(0,11);
+    return `${p13}|${b11}`;
+  }
+  function padRight(str, len, ch=" ") {
+    str = String(str ?? "");
+    if (str.length >= len) return str.slice(0, len);
+    return str + ch.repeat(len - str.length);
+  }
+  function makeCompound500() {
+    const msg500 = padRight(state.message || "", 500, " ");
+    const pair   = fixedEncode(state.parcel, state.bill);
+    return `${msg500}|${pair}`;
+  }
+
+  // ======== BRIDGE ========
+  function populateFormField(uniqueName, value) {
+    try { window.parent.postMessage({ action: "populate", field: uniqueName, value: value ?? "" }, "*"); } catch {}
+  }
+  function syncToForm() {
+    if (variant !== "message" || writeFromMessage) {
+      if (state.parcelOk && state.parcel) populateFormField(UNIQUE_PARCEL, state.parcel);
+      if (state.billOk   && state.bill)   populateFormField(UNIQUE_BILL,   state.bill);
     }
+  }
 
-    // ======== EXTRACTORS ========
-    function extractFirstParcel(s){
-      const m = (s || "").match(new RegExp(`\\b[0-9A-Za-z]{${PARCEL_LEN}}\\b`, 'g')) || [];
-      return normalizeToken(m[0] || "");
-    }
-    const RE_BILL_CANDIDATES = /\d{11}|\d{9}/g;
-    const isDigit = (c) => c >= "0" && c <= "9";
-    function isDigitBounded(text, startIdx, len) {
-      const endIdx = startIdx + len;
-      const prev = startIdx > 0 ? text[startIdx - 1] : "";
-      const next = endIdx < text.length ? text[endIdx] : "";
-      return !isDigit(prev) && !isDigit(next);
-    }
-    function extractFirstBill(s){
-      const str = s || "";
-      const matches = [...str.matchAll(RE_BILL_CANDIDATES)];
-      for (const mm of matches) {
-        const val = mm[0];
-        const start = mm.index ?? str.indexOf(val);
-        if (isDigitBounded(str, start, val.length)) return val;
-      }
-      return "";
-    }
-    const looksLikeBillLen = (v) => (/^\d{9}$/.test(v || "") || /^\d{11}$/.test(v || ""));
-
-    // ======== QUERY PARAMS ========
-    const params      = new URLSearchParams(location.search);
-    const variant     = (params.get("variant") || "both").toLowerCase();
-    const requireMode = (params.get("require") || "any").toLowerCase();
-
-    const labelOverrides = {
-      parcelLabel: safeDecode(params.get("parcelLabel")),
-      billLabel:   safeDecode(params.get("billLabel")),
-      parcelPh:    safeDecode(params.get("parcelPh")),
-      billPh:      safeDecode(params.get("billPh")),
-      messageLabel:safeDecode(params.get("messageLabel")),
-      messagePh:   safeDecode(params.get("messagePh")),
-    };
-
-    const urlParcels = safeDecode(params.get("parcelsEndpoint"));
-    const urlBills   = safeDecode(params.get("billsEndpoint"));
-    const urlBase    = safeDecode(params.get("base"));
-    if (urlBase)   BASE = urlBase;
-    if (urlParcels) PARCEL_URL = (v) => `${urlParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
-    if (urlBills)   BILL_URL   = (v) => `${urlBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
-
-    // NEW: control whether the message box extracts numbers
-    const detectFromMessage = (params.get("detectFromMessage") === "1") || (variant === "message");
-
-    // Keep earlier safeguard: message variant doesn't write to form unless ?writeMessage=1
-    const writeFromMessage = (params.get("writeMessage") === "1");
-
-    // ======== STATE ========
-    const state = { parcel:"", bill:"", parcelOk:false, billOk:false, message:"" };
-    let lastCheckedParcel = null, lastCheckedBill = null;
-    let prevParcelCandidate = null, prevBillCandidate = null;
-
-    // Prevent message-driven extraction from clobbering manual entries
-    let parcelLocked = false;
-    let billLocked   = false;
-
-    // ======== ENCODING ========
-    function fixedEncode(p, b) {
-      const P = normalizeToken(p);
-      const B = String(b || "").replace(/\D/g, "");
-      const p13 = (("0000000000000" + P).slice(-13)).slice(0,13);
-      const b11 = (("00000000000"  + B).slice(-11)).slice(0,11);
-      return `${p13}|${b11}`;
-    }
-    function padRight(str, len, ch=" ") {
-      str = String(str ?? "");
-      if (str.length >= len) return str.slice(0, len);
-      return str + ch.repeat(len - str.length);
-    }
-    function makeCompound500() {
-      const msg500 = padRight(state.message || "", 500, " ");
-      const pair   = fixedEncode(state.parcel, state.bill);
-      return `${msg500}|${pair}`;
-    }
-
-    // ======== BRIDGE ========
-    function populateFormField(uniqueName, value) {
-      try { window.parent.postMessage({ action: "populate", field: uniqueName, value: value ?? "" }, "*"); } catch {}
-    }
-
-    function syncToForm() {
-      if (variant !== "message" || writeFromMessage) {
-        if (state.parcelOk && state.parcel) populateFormField(UNIQUE_PARCEL, state.parcel);
-        if (state.billOk   && state.bill)   populateFormField(UNIQUE_BILL,   state.bill);
-      }
-    }
-
-    // ======== EMIT ========
-    function emitWidgetValue(){
-      const value = makeCompound500();
-      if (window.JFCustomWidget) {
-        try { JFCustomWidget.setValue(value); } catch {}
-        try { JFCustomWidget.sendData({ valid: true, value }); } catch {}
-        requestResize();
-      }
-      syncToForm();
-    }
-    const currentSubmitValue = () => makeCompound500();
-
-    // ======== UI ========
-    function applyVariantUI(){
-      const pb = $("pbWrap"), msg = $("msgWrap");
-      if (variant === "message"){ pb?.classList.add("hidden"); msg?.classList.remove("hidden"); }
-      else {
-        msg?.classList.add("hidden"); pb?.classList.remove("hidden");
-        if (variant === "parcel") $("billField")?.classList.add("hidden");
-        if (variant === "bill")   $("parcelField")?.classList.add("hidden");
-      }
+  function emitWidgetValue(){
+    const value = makeCompound500();
+    if (window.JFCustomWidget) {
+      try { JFCustomWidget.setValue(value); } catch {}
+      try { JFCustomWidget.sendData({ valid: true, value }); } catch {}
       requestResize();
     }
+    syncToForm();
+  }
+  const currentSubmitValue = () => makeCompound500();
 
-    // === NEW: ensure "(Optional)" suffix matches require mode ===
-    function ensureOptionalLabel(el, required) {
-      if (!el) return;
-      const raw = el.textContent || "";
-      const base = raw.replace(/\s*\(Optional\)\s*$/i, "");
-      if (required) el.textContent = base;            // remove suffix if present
-      else el.textContent = /\(optional\)$/i.test(raw) ? raw : `${base} (Optional)`;
+  // ======== UI ========
+  function applyVariantUI(){
+    const pb = $("pbWrap"), msg = $("msgWrap");
+    if (variant === "message"){ pb?.classList.add("hidden"); msg?.classList.remove("hidden"); }
+    else {
+      msg?.classList.add("hidden"); pb?.classList.remove("hidden");
+      if (variant === "parcel") $("billField")?.classList.add("hidden");
+      if (variant === "bill")   $("parcelField")?.classList.add("hidden");
     }
+    requestResize();
+  }
 
-    // ======== VALIDATORS ========
-    async function validateParcel(raw, {alsoMsg=false} = {}){
-      const val = normalizeToken(raw);
-      if(!val){
-        state.parcel=""; state.parcelOk=false; emitWidgetValue();
-        say("m_parcel","Enter a parcel number or leave blank if none.");
-        if (alsoMsg) sayLine("m_msg_parcel","No parcel detected.",""); return;
-      }
-      if (val.length !== PARCEL_LEN){
-        state.parcel=""; state.parcelOk=false; emitWidgetValue();
-        say("m_parcel",`Parcel must be ${PARCEL_LEN} characters.`,"bad");
-        if (alsoMsg) sayLine("m_msg_parcel",`Parcel must be ${PARCEL_LEN} characters.`,"bad"); return;
-      }
-      if (val === lastCheckedParcel && prevParcelCandidate === val) return;
-      lastCheckedParcel = val;
-      say("m_parcel","Validating parcel…"); if (alsoMsg) sayLine("m_msg_parcel","Validating parcel…","");
-      try{
-        const r = await getJson(PARCEL_URL(val));
-        if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
-          state.parcel = normalizeToken(r.data.normalized || r.data.parcel || val);
-          state.parcelOk = true;
-          emitWidgetValue(); say("m_parcel","✓ Valid parcel","ok");
-          if (alsoMsg) sayLine("m_msg_parcel",`✓ Parcel ${state.parcel} is valid`,"ok");
-        } else {
-          state.parcel=""; state.parcelOk=false; emitWidgetValue();
-          say("m_parcel","✗ Invalid parcel number. Please check and retype again","bad");
-          if (alsoMsg) sayLine("m_msg_parcel","✗ Parcel is invalid","bad");
-        }
-      }catch{
-        state.parcel=""; state.parcelOk=false; emitWidgetValue();
-        say("m_parcel","⚠ Error contacting parcel validator.","bad");
-        if (alsoMsg) sayLine("m_msg_parcel","⚠ Error contacting parcel validator","bad");
-      }
+  // Keep labels stable and append "(Optional)" via <span>
+  function ensureOptionalLabel(el, required) {
+    if (!el) return;
+    const base = (el.getAttribute("data-base") || el.textContent || "").replace(/\s*\(Optional\)\s*$/i, "");
+    el.setAttribute("data-base", base);
+    el.textContent = base;
+    el.querySelectorAll(".optional").forEach(n => n.remove());
+    if (!required) {
+      const opt = document.createElement("span");
+      opt.className = "optional";
+      opt.textContent = " (Optional)";
+      el.appendChild(opt);
     }
+  }
 
-    async function validateBill(raw, {alsoMsg=false} = {}){
-      const val = String(raw || "").replace(/\D/g, "");
-      if(!val){
-        state.bill=""; state.billOk=false; emitWidgetValue();
-        say("m_bill","Enter a bill number or leave blank if none.");
-        if (alsoMsg) sayLine("m_msg_bill","No bill detected.",""); return;
-      }
-      if (!looksLikeBillLen(val)){
-        state.bill=""; state.billOk=false; emitWidgetValue();
-        say("m_bill","Bill numbers are 9 or 11 digits.","bad");
-        if (alsoMsg) sayLine("m_msg_bill","Bill numbers are 9 or 11 digits.","bad"); return;
-      }
-      if (val === lastCheckedBill && prevBillCandidate === val) return;
-      lastCheckedBill = val;
-      say("m_bill","Validating bill…"); if (alsoMsg) sayLine("m_msg_bill","Validating bill…","");
-      try{
-        const r = await getJson(BILL_URL(val));
-        if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
-          state.bill = String(r.data.normalized || r.data.bill || val).replace(/\D/g,"");
-          state.billOk = true;
-          emitWidgetValue(); say("m_bill","✓ Valid bill","ok");
-          if (alsoMsg) sayLine("m_msg_bill",`✓ Bill ${state.bill} is valid`,"ok");
-        } else {
-          state.bill=""; state.billOk=false; emitWidgetValue();
-          say("m_bill","✗ Invalid bill number. Please check and retype again","bad");
-          if (alsoMsg) sayLine("m_msg_bill","✗ Bill is invalid","bad");
-        }
-      }catch{
-        state.bill=""; state.billOk=false; emitWidgetValue();
-        say("m_bill","⚠ Error contacting bill validator.","bad");
-        if (alsoMsg) sayLine("m_msg_bill","⚠ Error contacting bill validator","bad");
-      }
+  // ======== VALIDATORS ========
+  async function validateParcel(raw, {alsoMsg=false} = {}){
+    const val = normalizeToken(raw);
+    if(!val){
+      state.parcel=""; state.parcelOk=false; emitWidgetValue();
+      say("m_parcel","Enter a parcel number or leave blank if none.");
+      if (alsoMsg) sayLine("m_msg_parcel","No parcel detected","");
+      return;
     }
-
-    const debouncedParcel = debounce((v)=>validateParcel(v, {alsoMsg: variant==="message"}), 250);
-    const debouncedBill   = debounce((v)=>validateBill(v,   {alsoMsg: variant==="message"}), 250);
-
-    // ======== MESSAGE VARIANT ========
-    function onMessageInput(rawText){
-      state.message = rawText || "";
-
-      if (!detectFromMessage) { emitWidgetValue(); return; }
-
-      let candParcel = extractFirstParcel(rawText);
-      let candBill   = extractFirstBill(rawText);
-
-      if (candParcel && candBill && candParcel === candBill) {
-        if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
-        else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
-        else candBill = "";
-      }
-
-      if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
-      if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
-      prevParcelCandidate = candParcel || null;
-      prevBillCandidate   = candBill   || null;
-
-      if (candParcel && !parcelLocked) state.parcel = candParcel;
-      if (candBill   && !billLocked)   state.bill   = candBill;
-
-      emitWidgetValue();
-
-      if (state.parcel) debouncedParcel(state.parcel);
-      if (state.bill)   debouncedBill(state.bill);
+    if (val.length !== PARCEL_LEN){
+      state.parcel=""; state.parcelOk=false; emitWidgetValue();
+      const msg = `Parcel must be ${PARCEL_LEN} characters.`;
+      say("m_parcel", msg, "bad");
+      sayLine("m_msg_parcel", msg, "bad");
+      return;
     }
-
-    // ======== REQUIRE RULES ========
-    function passesRequireRule() {
-      switch (requireMode) {
-        case "none":   return true;
-        case "parcel": return !!state.parcel && state.parcelOk;
-        case "bill":   return !!state.bill   && state.billOk;
-        case "both":   return (!!state.parcel && state.parcelOk) && (!!state.bill && state.billOk);
-        case "any":
-        default:
-          const anyProvided = !!state.parcel || !!state.bill;
-          const anyValid    = (state.parcel && state.parcelOk) || (state.bill && state.billOk);
-          return anyProvided ? anyValid : true;
-      }
-    }
-    function explainRequireFailure() {
-      if (requireMode === "parcel")      say("m_parcel", "Parcel required and must be valid.", "bad");
-      else if (requireMode === "bill")   say("m_bill",   "Bill required and must be valid.", "bad");
-      else if (requireMode === "both") { if (!state.parcelOk) say("m_parcel","Parcel must be valid.","bad"); if (!state.billOk) say("m_bill","Bill must be valid.","bad"); }
-      else { if (state.parcel && !state.parcelOk) say("m_parcel","Parcel appears invalid.","bad"); if (state.bill && !state.billOk) say("m_bill","Bill appears invalid.","bad"); }
-    }
-
-    // ======== BOOT ========
-    (function init(){
-      // label/placeholder overrides from querystring
-      if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l) l.textContent=labelOverrides.parcelLabel; }
-      if (labelOverrides.billLabel){   const l=$("label_bill");   if(l) l.textContent=labelOverrides.billLabel; }
-      if (labelOverrides.messageLabel){ const l=$("label_message"); if(l) l.textContent=labelOverrides.messageLabel; }
-      if (labelOverrides.parcelPh && $("parcel")) $("parcel").placeholder = labelOverrides.parcelPh;
-      if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
-      if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
-
-      // Apply "(Optional)" suffix logic AFTER any overrides
-      const parcelRequired = (requireMode === "parcel" || requireMode === "both");
-      const billRequired   = (requireMode === "bill"   || requireMode === "both");
-      ensureOptionalLabel($("label_parcel"), parcelRequired);
-      ensureOptionalLabel($("label_bill"),   billRequired);
-
-      applyVariantUI();
-
-      // PARCEL input -> lock on ANY manual interaction
-      document.addEventListener("input",  (e)=>{
-        if(e?.target?.id==="parcel"){
-          parcelLocked = true;
-          state.parcel = normalizeToken(e.target.value);
-          emitWidgetValue();
-          debouncedParcel(e.target.value);
-        }
-      }, true);
-      document.addEventListener("change", (e)=>{
-        if(e?.target?.id==="parcel"){
-          parcelLocked = true;
-          state.parcel = normalizeToken(e.target.value);
-          emitWidgetValue();
-          debouncedParcel(e.target.value);
-        }
-      }, true);
-      document.addEventListener("focus", (e)=>{
-        if(e?.target?.id==="parcel"){ parcelLocked = true; }
-      }, true);
-
-      // BILL input -> lock on ANY manual interaction
-      document.addEventListener("input",  (e)=>{
-        if(e?.target?.id==="bill"){
-          billLocked = true;
-          state.bill = String(e.target.value||"").replace(/\D/g,"");
-          emitWidgetValue();
-          debouncedBill(state.bill);
-        }
-      }, true);
-      document.addEventListener("change", (e)=>{
-        if(e?.target?.id==="bill"){
-          billLocked = true;
-          state.bill = String(e.target.value||"").replace(/\D/g,"");
-          emitWidgetValue();
-          debouncedBill(state.bill);
-        }
-      }, true);
-      document.addEventListener("focus", (e)=>{
-        if(e?.target?.id==="bill"){ billLocked = true; }
-      }, true);
-
-      // MESSAGE input
-      document.addEventListener("input",  (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
-      document.addEventListener("change", (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
-
-      if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
-        JFCustomWidget.subscribe("ready", () => {
-          const sParcels = JFCustomWidget.getWidgetSetting?.("parcelsEndpoint");
-          const sBills   = JFCustomWidget.getWidgetSetting?.("billsEndpoint");
-          const sBase    = JFCustomWidget.getWidgetSetting?.("baseUrl");
-          if (sBase) BASE = sBase;
-          if (sParcels) PARCEL_URL = (v) => `${sParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
-          if (sBills)   BILL_URL   = (v) => `${sBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
-
-          state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; state.message="";
-          parcelLocked = false; billLocked = false;
-          emitWidgetValue(); requestResize();
-        });
-
-        JFCustomWidget.subscribe("submit", async () => {
-          if ($("freeText")) state.message = $("freeText").value || "";
-          if ($("parcel"))   state.parcel  = normalizeToken($("parcel").value);
-          if ($("bill"))     state.bill    = String($("bill").value||"").replace(/\D/g,"");
-
-          const needsParcelCheck = state.parcel && !state.parcelOk && state.parcel.length === PARCEL_LEN;
-          const needsBillCheck   = state.bill   && !state.billOk   && looksLikeBillLen(state.bill);
-          if (needsParcelCheck) await validateParcel(state.parcel);
-          if (needsBillCheck)   await validateBill(state.bill);
-
-          if (!passesRequireRule()) {
-            explainRequireFailure();
-            try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {}
-            try { JFCustomWidget.sendSubmit(false); } catch {}
-            return;
-          }
-
-          const payload = currentSubmitValue();
-          try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
-          try { JFCustomWidget.sendSubmit(true); } catch {}
-        });
+    if (val === lastCheckedParcel && prevParcelCandidate === val) return;
+    lastCheckedParcel = val;
+    say("m_parcel","Validating parcel…"); if (alsoMsg) sayLine("m_msg_parcel","Validating parcel…","");
+    try{
+      const r = await getJson(PARCEL_URL(val));
+      if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
+        state.parcel = normalizeToken(r.data.normalized || r.data.parcel || val);
+        state.parcelOk = true; emitWidgetValue();
+        say("m_parcel","✓ Valid parcel","ok");
+        sayLine("m_msg_parcel",`✓ Parcel ${state.parcel} is valid`,"ok");
       } else {
-        const showHint=()=>{ const hint=$("standaloneHint"); if(hint) hint.style.display="block"; };
-        if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", showHint, {once:true}); else showHint();
+        state.parcel=""; state.parcelOk=false; emitWidgetValue();
+        const msg = "✗ Invalid parcel number. Please check and retype again";
+        say("m_parcel", msg, "bad");
+        sayLine("m_msg_parcel", msg, "bad");  // mirror exact wording + red
       }
-    })();
+    }catch{
+      state.parcel=""; state.parcelOk=false; emitWidgetValue();
+      say("m_parcel","⚠ Error contacting parcel validator.","bad");
+      sayLine("m_msg_parcel","⚠ Error contacting parcel validator","bad");
+    }
+  }
+
+  async function validateBill(raw, {alsoMsg=false} = {}){
+    const val = String(raw || "").replace(/\D/g, "");
+    if(!val){
+      state.bill=""; state.billOk=false; emitWidgetValue();
+      say("m_bill","Enter a bill number or leave blank if none.");
+      if (alsoMsg) sayLine("m_msg_bill","No bill detected","");
+      return;
+    }
+    if (!looksLikeBillLen(val)){
+      state.bill=""; state.billOk=false; emitWidgetValue();
+      const msg = "Bill numbers are 9 or 11 digits.";
+      say("m_bill", msg, "bad");
+      sayLine("m_msg_bill", msg, "bad");
+      return;
+    }
+    if (val === lastCheckedBill && prevBillCandidate === val) return;
+    lastCheckedBill = val;
+    say("m_bill","Validating bill…"); if (alsoMsg) sayLine("m_msg_bill","Validating bill…","");
+    try{
+      const r = await getJson(BILL_URL(val));
+      if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
+        state.bill = String(r.data.normalized || r.data.bill || val).replace(/\D/g,"");
+        state.billOk = true; emitWidgetValue();
+        say("m_bill","✓ Valid bill","ok");
+        sayLine("m_msg_bill",`✓ Bill ${state.bill} is valid`,"ok");
+      } else {
+        state.bill=""; state.billOk=false; emitWidgetValue();
+        const msg = "✗ Invalid bill number. Please check and retype again";
+        say("m_bill", msg, "bad");
+        sayLine("m_msg_bill", msg, "bad");  // mirror exact wording + red
+      }
+    }catch{
+      state.bill=""; state.billOk=false; emitWidgetValue();
+      say("m_bill","⚠ Error contacting bill validator.","bad");
+      sayLine("m_msg_bill","⚠ Error contacting bill validator","bad");
+    }
+  }
+
+  const debouncedParcel = debounce((v)=>validateParcel(v, {alsoMsg: variant==="message"}), 250);
+  const debouncedBill   = debounce((v)=>validateBill(v,   {alsoMsg: variant==="message"}), 250);
+
+  // ======== MESSAGE VARIANT ========
+  function onMessageInput(rawText){
+    state.message = rawText || "";
+    if (!detectFromMessage) { emitWidgetValue(); return; }
+
+    let candParcel = extractFirstParcel(rawText);
+    let candBill   = extractFirstBill(rawText);
+
+    if (candParcel && candBill && candParcel === candBill) {
+      if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
+      else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
+      else candBill = "";
+    }
+
+    if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
+    if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
+    prevParcelCandidate = candParcel || null;
+    prevBillCandidate   = candBill   || null;
+
+    if (candParcel && !parcelLocked) state.parcel = candParcel;
+    if (candBill   && !billLocked)   state.bill   = candBill;
+
+    emitWidgetValue();
+
+    if (state.parcel) debouncedParcel(state.parcel);
+    if (state.bill)   debouncedBill(state.bill);
+  }
+
+  // ======== REQUIRE RULES ========
+  function passesRequireRule() {
+    switch (requireMode) {
+      case "none":   return true;
+      case "parcel": return !!state.parcel && state.parcelOk;
+      case "bill":   return !!state.bill   && state.billOk;
+      case "both":   return (!!state.parcel && state.parcelOk) && (!!state.bill && state.billOk);
+      case "any":
+      default:
+        const anyProvided = !!state.parcel || !!state.bill;
+        const anyValid    = (state.parcel && state.parcelOk) || (state.bill && state.billOk);
+        return anyProvided ? anyValid : true;
+    }
+  }
+  function explainRequireFailure() {
+    if (requireMode === "parcel")      say("m_parcel", "Parcel required and must be valid.", "bad");
+    else if (requireMode === "bill")   say("m_bill",   "Bill required and must be valid.", "bad");
+    else if (requireMode === "both") { if (!state.parcelOk) say("m_parcel","Parcel must be valid.","bad"); if (!state.billOk) say("m_bill","Bill must be valid.","bad"); }
+    else { if (state.parcel && !state.parcelOk) say("m_parcel","Parcel appears invalid.","bad"); if (state.bill && !state.billOk) say("m_bill","Bill appears invalid.","bad"); }
+  }
+
+  // ======== BOOT ========
+  (function init(){
+    // label/placeholder overrides from querystring
+    if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l){ l.setAttribute("data-base", labelOverrides.parcelLabel); l.textContent=labelOverrides.parcelLabel; } }
+    if (labelOverrides.billLabel){   const l=$("label_bill");   if(l){ l.setAttribute("data-base", labelOverrides.billLabel);   l.textContent=labelOverrides.billLabel;   } }
+    if (labelOverrides.messageLabel){ const l=$("label_message"); if(l) l.textContent=labelOverrides.messageLabel; }
+    if (labelOverrides.parcelPh && $("parcel")) $("parcel").placeholder = labelOverrides.parcelPh;
+    if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
+    if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
+
+    // "(Optional)" logic AFTER overrides
+    const parcelRequired = (requireMode === "parcel" || requireMode === "both");
+    const billRequired   = (requireMode === "bill"   || requireMode === "both");
+    ensureOptionalLabel($("label_parcel"), parcelRequired);
+    ensureOptionalLabel($("label_bill"),   billRequired);
+
+    applyVariantUI();
+
+    // PARCEL input
+    document.addEventListener("input",  (e)=>{
+      if(e?.target?.id==="parcel"){
+        parcelLocked = true;
+        state.parcel = normalizeToken(e.target.value);
+        emitWidgetValue();
+        debouncedParcel(e.target.value);
+      }
+    }, true);
+    document.addEventListener("change", (e)=>{
+      if(e?.target?.id==="parcel"){
+        parcelLocked = true;
+        state.parcel = normalizeToken(e.target.value);
+        emitWidgetValue();
+        debouncedParcel(e.target.value);
+      }
+    }, true);
+    document.addEventListener("focus", (e)=>{ if(e?.target?.id==="parcel"){ parcelLocked = true; } }, true);
+
+    // BILL input
+    document.addEventListener("input",  (e)=>{
+      if(e?.target?.id==="bill"){
+        billLocked = true;
+        state.bill = String(e.target.value||"").replace(/\D/g,"");
+        emitWidgetValue();
+        debouncedBill(state.bill);
+      }
+    }, true);
+    document.addEventListener("change", (e)=>{
+      if(e?.target?.id==="bill"){
+        billLocked = true;
+        state.bill = String(e.target.value||"").replace(/\D/g,"");
+        emitWidgetValue();
+        debouncedBill(state.bill);
+      }
+    }, true);
+    document.addEventListener("focus", (e)=>{ if(e?.target?.id==="bill"){ billLocked = true; } }, true);
+
+    // MESSAGE input
+    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
+    document.addEventListener("change", (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
+
+    if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
+      JFCustomWidget.subscribe("ready", () => {
+        const sParcels = JFCustomWidget.getWidgetSetting?.("parcelsEndpoint");
+        const sBills   = JFCustomWidget.getWidgetSetting?.("billsEndpoint");
+        const sBase    = JFCustomWidget.getWidgetSetting?.("baseUrl");
+        if (sBase) BASE = sBase;
+        if (sParcels) PARCEL_URL = (v) => `${sParcels.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+        if (sBills)   BILL_URL   = (v) => `${sBills.replace(/\/$/,'')}/${encodeURIComponent(v)}`;
+
+        state.parcel=""; state.bill=""; state.parcelOk=false; state.billOk=false; state.message="";
+        parcelLocked = false; billLocked = false;
+        emitWidgetValue(); requestResize();
+      });
+
+      JFCustomWidget.subscribe("submit", async () => {
+        if ($("freeText")) state.message = $("freeText").value || "";
+        if ($("parcel"))   state.parcel  = normalizeToken($("parcel").value);
+        if ($("bill"))     state.bill    = String($("bill").value||"").replace(/\D/g,"");
+
+        const needsParcelCheck = state.parcel && !state.parcelOk && state.parcel.length === PARCEL_LEN;
+        const needsBillCheck   = state.bill   && !state.billOk   && looksLikeBillLen(state.bill);
+        if (needsParcelCheck) await validateParcel(state.parcel);
+        if (needsBillCheck)   await validateBill(state.bill);
+
+        if (!passesRequireRule()) {
+          explainRequireFailure();
+          try { JFCustomWidget.sendSubmit({ valid: false, value: currentSubmitValue() }); return; } catch {}
+          try { JFCustomWidget.sendSubmit(false); } catch {}
+          return;
+        }
+
+        const payload = currentSubmitValue();
+        try { JFCustomWidget.sendSubmit({ valid: true, value: payload }); return; } catch {}
+        try { JFCustomWidget.sendSubmit(true); } catch {}
+      });
+    } else {
+      const showHint=()=>{ const hint=$("standaloneHint"); if(hint) hint.style.display="block"; };
+      if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", showHint, {once:true}); else showHint();
+    }
+  })();
     </script>
 </body>
 </html>
