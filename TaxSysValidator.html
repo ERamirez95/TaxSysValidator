@@ -8,7 +8,6 @@
         :root {
             color-scheme: light dark;
         }
-
         /* === Tokens (match JotForm) === */
         :root {
             --label: #4a4a4a;
@@ -23,10 +22,9 @@
             --input-h: 44px;
             --ta-min-h: 240px;
             --li-padding-v: 12px;
-            --li-padding-h: 10px; /* kept for reference; we won’t use horizontal padding */
+            --li-padding-h: 10px;
         }
 
-        /* Make sure nothing clips width inside the iframe */
         html, body {
             width: 100%;
             max-width: 100%;
@@ -35,7 +33,6 @@
         body {
             font: 16px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
             margin: 0;
-            /* removed 10px iframe padding so inputs can truly be full-width */
             padding: 0;
             color: var(--text);
         }
@@ -54,9 +51,6 @@
 
         .field {
             display: block;
-        }
-        /* Keep vertical spacing but remove left/right padding that was shrinking the inputs */
-        .field {
             padding: var(--li-padding-v) 0;
         }
 
@@ -315,6 +309,15 @@
       requestResize();
     }
 
+    // === NEW: ensure "(Optional)" suffix matches require mode ===
+    function ensureOptionalLabel(el, required) {
+      if (!el) return;
+      const raw = el.textContent || "";
+      const base = raw.replace(/\s*\(Optional\)\s*$/i, "");
+      if (required) el.textContent = base;            // remove suffix if present
+      else el.textContent = /\(optional\)$/i.test(raw) ? raw : `${base} (Optional)`;
+    }
+
     // ======== VALIDATORS ========
     async function validateParcel(raw, {alsoMsg=false} = {}){
       const val = normalizeToken(raw);
@@ -439,13 +442,19 @@
 
     // ======== BOOT ========
     (function init(){
-      // label/placeholder overrides
+      // label/placeholder overrides from querystring
       if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l) l.textContent=labelOverrides.parcelLabel; }
       if (labelOverrides.billLabel){   const l=$("label_bill");   if(l) l.textContent=labelOverrides.billLabel; }
       if (labelOverrides.messageLabel){ const l=$("label_message"); if(l) l.textContent=labelOverrides.messageLabel; }
       if (labelOverrides.parcelPh && $("parcel")) $("parcel").placeholder = labelOverrides.parcelPh;
       if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
       if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
+
+      // Apply "(Optional)" suffix logic AFTER any overrides
+      const parcelRequired = (requireMode === "parcel" || requireMode === "both");
+      const billRequired   = (requireMode === "bill"   || requireMode === "both");
+      ensureOptionalLabel($("label_parcel"), parcelRequired);
+      ensureOptionalLabel($("label_bill"),   billRequired);
 
       applyVariantUI();
 
