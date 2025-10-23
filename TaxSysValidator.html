@@ -109,10 +109,6 @@
             color: var(--muted)
         }
 
-        .ok {
-            color: #156c1e
-        }
-
         .bad {
             color: #9f1d1d
         }
@@ -127,10 +123,6 @@
             .substatus.bad {
                 color: #9f1d1d
             }
-            /* make message-variant errors red */
-            .substatus.ok {
-                color: #156c1e
-            }
 
         .hint {
             opacity: .8;
@@ -143,30 +135,28 @@
             display: none !important
         }
     </style>
-
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
     <div id="pbWrap" class="row">
         <div class="field" id="parcelField">
-            <!-- keep default text; JS will append (Optional) as needed -->
             <label for="parcel" id="label_parcel">Parcel Number (Optional)</label>
             <input id="parcel" placeholder="Enter parcel number (Optional)" autocomplete="off" inputmode="text" />
-            <div id="m_parcel" class="msg">(Optional) We'll verify this before you submit.</div>
+            <div id="m_parcel" class="msg hidden"></div>
         </div>
         <div class="field" id="billField">
             <label for="bill" id="label_bill">Bill Number (Optional)</label>
             <input id="bill" placeholder="Enter bill number (Optional)" autocomplete="off" inputmode="numeric" />
-            <div id="m_bill" class="msg">(Optional) We'll verify this before you submit.</div>
+            <div id="m_bill" class="msg hidden"></div>
         </div>
     </div>
 
     <div id="msgWrap" class="field hidden">
         <label for="freeText" id="label_message">Enter your message in the space provided below:</label>
         <textarea id="freeText" placeholder=""></textarea>
-        <div id="m_message" class="msg"></div>
-        <div class="substatus" id="m_msg_parcel"></div>
-        <div class="substatus" id="m_msg_bill"></div>
+        <div id="m_message" class="msg hidden"></div>
+        <div class="substatus hidden" id="m_msg_parcel"></div>
+        <div class="substatus hidden" id="m_msg_bill"></div>
     </div>
 
     <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
@@ -198,8 +188,15 @@
     } catch {}
   }
 
-  const say = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "msg "+(cls||""); e.textContent = txt || ""; requestResize(); };
-  const sayLine = (id, txt, cls="") => { const e=$(id); if(!e) return; e.className = "substatus "+(cls||""); e.textContent = txt || ""; requestResize(); };
+  // Only show messages when invalid/error
+  const showMsg = (id, txt, bad=true) => {
+    const e = $(id); if(!e) return;
+    e.className = (e.className.includes('substatus') ? 'substatus' : 'msg') + (bad ? ' bad' : '');
+    e.textContent = txt || '';
+    e.classList.remove('hidden');
+    requestResize();
+  };
+  const hideMsg = (id) => { const e=$(id); if(!e) return; e.textContent=""; e.classList.add('hidden'); requestResize(); };
 
   async function getJson(url){
     const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store" });
@@ -318,13 +315,11 @@
     requestResize();
   }
 
-  // Append "(Optional)" based on the CURRENT label text (keeps query overrides intact)
   function ensureOptionalLabel(el, required) {
     if (!el) return;
     const raw  = el.textContent || "";
-    const base = raw.replace(/\s*\(Optional\)\s*$/i, "");   // strip any existing suffix from HTML or overrides
+    const base = raw.replace(/\s*\(Optional\)\s*$/i, "");
     el.textContent = base;
-    // remove any prior span we added
     el.querySelectorAll(".optional").forEach(n => n.remove());
     if (!required) {
       const opt = document.createElement("span");
@@ -334,42 +329,45 @@
     }
   }
 
-  // ======== VALIDATORS (unchanged) ========
+  // ======== VALIDATORS (messages only on invalid) ========
   async function validateParcel(raw, {alsoMsg=false} = {}){
     const val = normalizeToken(raw);
     if(!val){
       state.parcel=""; state.parcelOk=false; emitWidgetValue();
-      say("m_parcel","Enter a parcel number or leave blank if none.");
-      if (alsoMsg) sayLine("m_msg_parcel","No parcel detected","");
+      hideMsg("m_parcel"); if (alsoMsg) hideMsg("m_msg_parcel");
       return;
     }
     if (val.length !== PARCEL_LEN){
       state.parcel=""; state.parcelOk=false; emitWidgetValue();
       const msg = `Parcel must be ${PARCEL_LEN} characters.`;
-      say("m_parcel", msg, "bad");
-      sayLine("m_msg_parcel", msg, "bad");
+      showMsg("m_parcel", msg, true);
+      if (alsoMsg) showMsg("m_msg_parcel", msg, true);
       return;
     }
     if (val === lastCheckedParcel && prevParcelCandidate === val) return;
     lastCheckedParcel = val;
-    say("m_parcel","Validating parcel…"); if (alsoMsg) sayLine("m_msg_parcel","Validating parcel…","");
+
+    // suppress "validating…" text
+    hideMsg("m_parcel"); if (alsoMsg) hideMsg("m_msg_parcel");
+
     try{
       const r = await getJson(PARCEL_URL(val));
       if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
         state.parcel = normalizeToken(r.data.normalized || r.data.parcel || val);
         state.parcelOk = true; emitWidgetValue();
-        say("m_parcel","✓ Valid parcel","ok");
-        sayLine("m_msg_parcel",`✓ Parcel ${state.parcel} is valid`,"ok");
+        // valid => keep quiet
+        hideMsg("m_parcel"); if (alsoMsg) hideMsg("m_msg_parcel");
       } else {
         state.parcel=""; state.parcelOk=false; emitWidgetValue();
         const msg = "✗ Invalid parcel number. Please check and retype again";
-        say("m_parcel", msg, "bad");
-        sayLine("m_msg_parcel", msg, "bad");
+        showMsg("m_parcel", msg, true);
+        if (alsoMsg) showMsg("m_msg_parcel", msg, true);
       }
     }catch{
       state.parcel=""; state.parcelOk=false; emitWidgetValue();
-      say("m_parcel","⚠ Error contacting parcel validator.","bad");
-      sayLine("m_msg_parcel","⚠ Error contacting parcel validator","bad");
+      const msg = "⚠ Error contacting parcel validator.";
+      showMsg("m_parcel", msg, true);
+      if (alsoMsg) showMsg("m_msg_parcel", "⚠ Error contacting parcel validator", true);
     }
   }
 
@@ -377,37 +375,40 @@
     const val = String(raw || "").replace(/\D/g, "");
     if(!val){
       state.bill=""; state.billOk=false; emitWidgetValue();
-      say("m_bill","Enter a bill number or leave blank if none.");
-      if (alsoMsg) sayLine("m_msg_bill","No bill detected","");
+      hideMsg("m_bill"); if (alsoMsg) hideMsg("m_msg_bill");
       return;
     }
     if (!looksLikeBillLen(val)){
       state.bill=""; state.billOk=false; emitWidgetValue();
       const msg = "Bill numbers are 9 or 11 digits.";
-      say("m_bill", msg, "bad");
-      sayLine("m_msg_bill", msg, "bad");
+      showMsg("m_bill", msg, true);
+      if (alsoMsg) showMsg("m_msg_bill", msg, true);
       return;
     }
     if (val === lastCheckedBill && prevBillCandidate === val) return;
     lastCheckedBill = val;
-    say("m_bill","Validating bill…"); if (alsoMsg) sayLine("m_msg_bill","Validating bill…","");
+
+    // suppress "validating…" text
+    hideMsg("m_bill"); if (alsoMsg) hideMsg("m_msg_bill");
+
     try{
       const r = await getJson(BILL_URL(val));
       if(r.ok && (r.data?.exists===true || r.data?.ok===true)){
         state.bill = String(r.data.normalized || r.data.bill || val).replace(/\D/g,"");
         state.billOk = true; emitWidgetValue();
-        say("m_bill","✓ Valid bill","ok");
-        sayLine("m_msg_bill",`✓ Bill ${state.bill} is valid`,"ok");
+        // valid => keep quiet
+        hideMsg("m_bill"); if (alsoMsg) hideMsg("m_msg_bill");
       } else {
         state.bill=""; state.billOk=false; emitWidgetValue();
         const msg = "✗ Invalid bill number. Please check and retype again";
-        say("m_bill", msg, "bad");
-        sayLine("m_msg_bill", msg, "bad");
+        showMsg("m_bill", msg, true);
+        if (alsoMsg) showMsg("m_msg_bill", msg, true);
       }
     }catch{
       state.bill=""; state.billOk=false; emitWidgetValue();
-      say("m_bill","⚠ Error contacting bill validator.","bad");
-      sayLine("m_msg_bill","⚠ Error contacting bill validator","bad");
+      const msg = "⚠ Error contacting bill validator.";
+      showMsg("m_bill", msg, true);
+      if (alsoMsg) showMsg("m_msg_bill", "⚠ Error contacting bill validator", true);
     }
   }
 
@@ -417,7 +418,6 @@
   // ======== MESSAGE VARIANT ========
   function onMessageInput(rawText){
     state.message = rawText || "";
-
     if (!detectFromMessage) { emitWidgetValue(); return; }
 
     let candParcel = extractFirstParcel(rawText);
@@ -429,8 +429,8 @@
       else candBill = "";
     }
 
-    if (candParcel !== prevParcelCandidate) { sayLine("m_msg_parcel", candParcel ? "Validating parcel…" : "No parcel detected.", ""); lastCheckedParcel = null; }
-    if (candBill !== prevBillCandidate)     { sayLine("m_msg_bill",   candBill ? "Validating bill…"   : "No bill detected.",   ""); lastCheckedBill   = null; }
+    // quiet while parsing
+    hideMsg("m_msg_parcel"); hideMsg("m_msg_bill");
     prevParcelCandidate = candParcel || null;
     prevBillCandidate   = candBill   || null;
 
@@ -438,7 +438,6 @@
     if (candBill   && !billLocked)   state.bill   = candBill;
 
     emitWidgetValue();
-
     if (state.parcel) debouncedParcel(state.parcel);
     if (state.bill)   debouncedBill(state.bill);
   }
@@ -458,15 +457,21 @@
     }
   }
   function explainRequireFailure() {
-    if (requireMode === "parcel")      say("m_parcel", "Parcel required and must be valid.", "bad");
-    else if (requireMode === "bill")   say("m_bill",   "Bill required and must be valid.", "bad");
-    else if (requireMode === "both") { if (!state.parcelOk) say("m_parcel","Parcel must be valid.","bad"); if (!state.billOk) say("m_bill","Bill must be valid.","bad"); }
-    else { if (state.parcel && !state.parcelOk) say("m_parcel","Parcel appears invalid.","bad"); if (state.bill && !state.billOk) say("m_bill","Bill appears invalid.","bad"); }
+    // Only show when truly failing; these are invalid cases so it's fine to display
+    if (requireMode === "parcel")      showMsg("m_parcel", "Parcel required and must be valid.", true);
+    else if (requireMode === "bill")   showMsg("m_bill",   "Bill required and must be valid.", true);
+    else if (requireMode === "both") {
+      if (!state.parcelOk) showMsg("m_parcel","Parcel must be valid.", true);
+      if (!state.billOk)   showMsg("m_bill","Bill must be valid.", true);
+    } else {
+      if (state.parcel && !state.parcelOk) showMsg("m_parcel","Parcel appears invalid.", true);
+      if (state.bill && !state.billOk)     showMsg("m_bill","Bill appears invalid.", true);
+    }
   }
 
   // ======== BOOT ========
   (function init(){
-    // label/placeholder overrides from querystring (NO data-base usage)
+    // label/placeholder overrides
     if (labelOverrides.parcelLabel){ const l=$("label_parcel"); if(l){ l.textContent = labelOverrides.parcelLabel; } }
     if (labelOverrides.billLabel){   const l=$("label_bill");   if(l){ l.textContent = labelOverrides.billLabel;   } }
     if (labelOverrides.messageLabel){ const l=$("label_message"); if(l) l.textContent=labelOverrides.messageLabel; }
@@ -474,7 +479,6 @@
     if (labelOverrides.billPh   && $("bill"))   $("bill").placeholder   = labelOverrides.billPh;
     if (labelOverrides.messagePh&& $("freeText")) $("freeText").placeholder = labelOverrides.messagePh;
 
-    // Apply "(Optional)" suffix AFTER overrides, based on requireMode
     const parcelRequired = (requireMode === "parcel" || requireMode === "both");
     const billRequired   = (requireMode === "bill"   || requireMode === "both");
     ensureOptionalLabel($("label_parcel"), parcelRequired);
