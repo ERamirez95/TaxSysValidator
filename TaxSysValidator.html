@@ -359,7 +359,7 @@
         state.parcel = normalizeToken(r.data.normalized || r.data.parcel || val);
         state.parcelOk = true; emitWidgetValue();
         say("m_parcel","✓ Valid parcel","ok");
-        sayLine();
+        sayLine("m_msg_parcel",`test`,"ok");
       } else {
         state.parcel=""; state.parcelOk=false; emitWidgetValue();
         const msg = "✗ Invalid parcel number. Please check and retype again";
@@ -397,7 +397,7 @@
         state.bill = String(r.data.normalized || r.data.bill || val).replace(/\D/g,"");
         state.billOk = true; emitWidgetValue();
         say("m_bill","✓ Valid bill","ok");
-        sayLine();
+        sayLine("m_msg_bill",`test`,"ok");
       } else {
         state.bill=""; state.billOk=false; emitWidgetValue();
         const msg = "✗ Invalid bill number. Please check and retype again";
