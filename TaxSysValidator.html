@@ -1,81 +1,189 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>TaxSys Validator (Parcel/Bill/Message)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root { color-scheme: light dark; }
-    /* === Tokens (match JotForm) === */
-    :root{
-      --label:#4a4a4a; --muted:#6b7280; --placeholder:#9ca3af; --text:#111827;
-      --border:#e5e7eb; --border-hover:#d1d5db; --ring:#2563eb;
-      --radius:8px; --gap:16px; --input-h:44px; --ta-min-h:240px;
-      --li-padding-v:12px; --li-padding-h:10px;
-    }
-    html,body{width:100%;max-width:100%}
-    body{font:16px Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:0;color:var(--text)}
+    <meta charset="utf-8" />
+    <title>TaxSys Validator (Parcel/Bill/Message)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            color-scheme: light dark;
+        }
+        /* === Tokens (match JotForm) === */
+        :root {
+            --label: #4a4a4a;
+            --muted: #6b7280;
+            --placeholder: #9ca3af;
+            --text: #111827;
+            --border: #e5e7eb;
+            --border-hover: #d1d5db;
+            --ring: #2563eb;
+            --radius: 8px;
+            --gap: 16px;
+            --input-h: 44px;
+            --ta-min-h: 240px;
+            --li-padding-v: 12px;
+            --li-padding-h: 10px;
+        }
 
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}
-    @media (max-width:900px){ .row{grid-template-columns:1fr} }
+        html, body {
+            width: 100%;
+            max-width: 100%
+        }
 
-    .field{display:block;padding:var(--li-padding-v) 0}
-    label{display:block;margin:0 0 8px;font-weight:600;color:var(--label);line-height:1.25rem}
-    .optional{font-weight:400;color:var(--muted)}
+        body {
+            font: 16px Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+            margin: 0;
+            padding: 0;
+            color: var(--text)
+        }
 
-    input,textarea{
-      display:block;width:100%;padding:12px 14px;box-sizing:border-box;
-      border:1px solid var(--border);border-radius:var(--radius);background:#fff;outline:none;
-      transition:border-color .15s ease, box-shadow .15s ease;font-size:16px
-    }
-    input{height:var(--input-h)}
-    textarea{min-height:var(--ta-min-h);resize:vertical}
-    input:hover, textarea:hover{border-color:var(--border-hover)}
-    input:focus, textarea:focus{border-color:var(--ring);box-shadow:0 0 0 3px rgb(37 99 235 / 12%)}
-    ::placeholder{color:var(--placeholder)}
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--gap)
+        }
 
-    .msg{margin-top:6px;min-height:1.1rem;font-size:12px;color:var(--muted)}
-    .ok{color:#156c1e}
-    .bad{color:#9f1d1d}
+        @media (max-width:900px) {
+            .row {
+                grid-template-columns: 1fr
+            }
+        }
 
-    .substatus{font-size:12px;opacity:.9;margin-top:6px;color:var(--muted)}
-    .substatus.bad{color:#9f1d1d}
-    .substatus.ok{color:#156c1e}
+        .field {
+            display: block;
+            padding: var(--li-padding-v) 0
+        }
 
-    .hint{opacity:.8;font-size:12px;margin-top:8px;color:var(--muted)}
-    .hidden{display:none !important}
-  </style>
-  <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
+        label {
+            display: block;
+            margin: 0 0 8px;
+            font-weight: 600;
+            color: var(--label);
+            line-height: 1.25rem
+        }
+
+        .optional {
+            font-weight: 400;
+            color: var(--muted)
+        }
+
+        input, textarea {
+            display: block;
+            width: 100%;
+            padding: 12px 14px;
+            box-sizing: border-box;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: #fff;
+            outline: none;
+            transition: border-color .15s ease, box-shadow .15s ease;
+            font-size: 16px
+        }
+
+        input {
+            height: var(--input-h)
+        }
+
+        textarea {
+            min-height: var(--ta-min-h);
+            resize: vertical
+        }
+
+            input:hover, textarea:hover {
+                border-color: var(--border-hover)
+            }
+
+            input:focus, textarea:focus {
+                border-color: var(--ring);
+                box-shadow: 0 0 0 3px rgb(37 99 235 / 12%)
+            }
+
+        ::placeholder {
+            color: var(--placeholder)
+        }
+
+        .msg {
+            margin-top: 6px;
+            min-height: 1.1rem;
+            font-size: 12px;
+            color: var(--muted)
+        }
+
+        .ok {
+            color: #156c1e
+        }
+
+        .bad {
+            color: #9f1d1d
+        }
+
+        .substatus {
+            font-size: 12px;
+            opacity: .9;
+            margin-top: 6px;
+            color: var(--muted)
+        }
+
+            .substatus.bad {
+                color: #9f1d1d
+            }
+
+            .substatus.ok {
+                color: #156c1e
+            }
+
+        .hint {
+            opacity: .8;
+            font-size: 12px;
+            margin-top: 8px;
+            color: var(--muted)
+        }
+
+        .hidden {
+            display: none !important
+        }
+        /* Only show message-area lines when invalid */
+        #msgWrap .msg,
+        #msgWrap .substatus {
+            display: none;
+        }
+
+            #msgWrap .msg.bad,
+            #msgWrap .substatus.bad {
+                display: block;
+            }
+    </style>
+    <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
 <body>
-  <!-- NEW: root wrapper that we toggle on invalids -->
-  <div id="widgetRoot" class="hidden">
-    <div id="pbWrap" class="row">
-      <div class="field" id="parcelField">
-        <label for="parcel" id="label_parcel">Parcel Number (Optional)</label>
-        <input id="parcel" placeholder="Enter parcel number (Optional)" autocomplete="off" inputmode="text" />
-        <!-- start with empty helper text; we'll show details only when invalid -->
-        <div id="m_parcel" class="msg"></div>
-      </div>
-      <div class="field" id="billField">
-        <label for="bill" id="label_bill">Bill Number (Optional)</label>
-        <input id="bill" placeholder="Enter bill number (Optional)" autocomplete="off" inputmode="numeric" />
-        <div id="m_bill" class="msg"></div>
-      </div>
+    <!-- NEW: root wrapper that we toggle on invalids -->
+    <div id="widgetRoot" class="hidden">
+        <div id="pbWrap" class="row">
+            <div class="field" id="parcelField">
+                <label for="parcel" id="label_parcel">Parcel Number (Optional)</label>
+                <input id="parcel" placeholder="Enter parcel number (Optional)" autocomplete="off" inputmode="text" />
+                <!-- start with empty helper text; we'll show details only when invalid -->
+                <div id="m_parcel" class="msg"></div>
+            </div>
+            <div class="field" id="billField">
+                <label for="bill" id="label_bill">Bill Number (Optional)</label>
+                <input id="bill" placeholder="Enter bill number (Optional)" autocomplete="off" inputmode="numeric" />
+                <div id="m_bill" class="msg"></div>
+            </div>
+        </div>
+
+        <div id="msgWrap" class="field hidden">
+            <label for="freeText" id="label_message">Enter your message in the space provided below:</label>
+            <textarea id="freeText" placeholder=""></textarea>
+            <div id="m_message" class="msg"></div>
+            <div class="substatus" id="m_msg_parcel">No parcel detected.</div>
+            <div class="substatus" id="m_msg_bill">No bill detected.</div>
+        </div>
+
+        <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
     </div>
 
-    <div id="msgWrap" class="field hidden">
-      <label for="freeText" id="label_message">Enter your message in the space provided below:</label>
-      <textarea id="freeText" placeholder=""></textarea>
-      <div id="m_message" class="msg"></div>
-      <div class="substatus" id="m_msg_parcel">No parcel detected.</div>
-      <div class="substatus" id="m_msg_bill">No bill detected.</div>
-    </div>
-
-    <div id="standaloneHint" class="hint" style="display:none">(Opened outside Jotform.)</div>
-  </div>
-
-<script>
+    <script>
 /* ======== CONFIG ======== */
 const PARCEL_LEN = 13;
 const BILL_LENS  = [9, 11];
@@ -446,6 +554,6 @@ function explainRequireFailure(){
   // ensure correct initial visibility (hidden)
   updateVisibility();
 })();
-</script>
+    </script>
 </body>
 </html>
