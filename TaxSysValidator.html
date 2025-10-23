@@ -142,6 +142,17 @@
         .hidden {
             display: none !important
         }
+        /* Only show message-area lines when invalid */
+        #msgWrap .msg,
+        #msgWrap .substatus {
+            display: none;
+        }
+
+            #msgWrap .msg.bad,
+            #msgWrap .substatus.bad {
+                display: block;
+            }
+
     </style>
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 </head>
