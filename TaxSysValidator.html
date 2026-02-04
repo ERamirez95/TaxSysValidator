@@ -180,6 +180,47 @@
   const safeDecode = (v)=>{ if(!v) return v; try{ v=decodeURIComponent(v);}catch{} try{ v=decodeURIComponent(v);}catch{} return v.replace(/\+/g,' '); };
   const normalizeToken = (s) => (s || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
 
+        // ======== URL BREAKER (message only) ========
+        // Break URLs so Jotform won't auto-link them in emails/inbox/PDF.
+        // Keeps it readable: https://example.com -> https[:]//example[.]com
+        function breakUrlsPreserveReadable(text) {
+            if (!text) return text;
+
+            // Match http(s)://... or www....
+            const re = /\bhttps?:\/\/[^\s<>()]+|\bwww\.[^\s<>()]+/gi;
+
+            return text.replace(re, (url) => {
+                let out = url;
+
+                // Break protocol if present
+                out = out.replace(/^https?:\/\//i, (m) => m.replace("://", "[:]//"));
+
+                // Break dots (prevents linkification)
+                out = out.replace(/\./g, "[.]");
+
+                return out;
+            });
+        }
+
+
+        // Preserve caret when we rewrite textarea value
+        function setTextareaValuePreserveCaret(el, nextValue) {
+            if (!el) return;
+            const start = el.selectionStart;
+            const end = el.selectionEnd;
+            const prev = el.value;
+
+            if (prev === nextValue) return;
+
+            // Simple caret preservation (works well for most typing cases)
+            el.value = nextValue;
+            try {
+                const delta = nextValue.length - prev.length;
+                el.setSelectionRange(start + delta, end + delta);
+            } catch { }
+        }
+
+
   function requestResize() {
     try {
       const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, 180);
@@ -416,31 +457,36 @@
   const debouncedBill   = debounce((v)=>validateBill(v,   {alsoMsg: variant==="message"}), 250);
 
   // ======== MESSAGE VARIANT ========
-  function onMessageInput(rawText){
-    state.message = rawText || "";
-    if (!detectFromMessage) { emitWidgetValue(); return; }
+        function onMessageInput(rawText) {
+            // NEW: break URLs before storing/extracting/submitting
+            const sanitizedText = breakUrlsPreserveReadable(rawText || "");
+            state.message = sanitizedText;
 
-    let candParcel = extractFirstParcel(rawText);
-    let candBill   = extractFirstBill(rawText);
+            // Keep existing functionality: extraction still works (parcel/bill unaffected)
+            if (!detectFromMessage) { emitWidgetValue(); return; }
 
-    if (candParcel && candBill && candParcel === candBill) {
-      if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
-      else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
-      else candBill = "";
-    }
+            let candParcel = extractFirstParcel(sanitizedText);
+            let candBill = extractFirstBill(sanitizedText);
 
-    // quiet while parsing
-    hideMsg("m_msg_parcel"); hideMsg("m_msg_bill");
-    prevParcelCandidate = candParcel || null;
-    prevBillCandidate   = candBill   || null;
+            if (candParcel && candBill && candParcel === candBill) {
+                if (candParcel.length === PARCEL_LEN && !looksLikeBillLen(candBill)) candBill = "";
+                else if (looksLikeBillLen(candBill) && candParcel.length !== PARCEL_LEN) candParcel = "";
+                else candBill = "";
+            }
 
-    if (candParcel && !parcelLocked) state.parcel = candParcel;
-    if (candBill   && !billLocked)   state.bill   = candBill;
+            // quiet while parsing
+            hideMsg("m_msg_parcel"); hideMsg("m_msg_bill");
+            prevParcelCandidate = candParcel || null;
+            prevBillCandidate = candBill || null;
 
-    emitWidgetValue();
-    if (state.parcel) debouncedParcel(state.parcel);
-    if (state.bill)   debouncedBill(state.bill);
-  }
+            if (candParcel && !parcelLocked) state.parcel = candParcel;
+            if (candBill && !billLocked) state.bill = candBill;
+
+            emitWidgetValue();
+            if (state.parcel) debouncedParcel(state.parcel);
+            if (state.bill) debouncedBill(state.bill);
+        }
+
 
   // ======== REQUIRE RULES ========
   function passesRequireRule() {
@@ -495,8 +541,24 @@
     document.addEventListener("change", (e)=>{ if(e?.target?.id==="bill"){ billLocked = true; state.bill = String(e.target.value||"").replace(/\D/g,""); emitWidgetValue(); debouncedBill(state.bill); }}, true);
     document.addEventListener("focus",  (e)=>{ if(e?.target?.id==="bill"){ billLocked = true; }}, true);
 
-    document.addEventListener("input",  (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
-    document.addEventListener("change", (e)=>{ if(e?.target?.id==="freeText"){ onMessageInput(e.target.value); }}, true);
+      document.addEventListener("input", (e) => {
+          if (e?.target?.id === "freeText") {
+              const el = e.target;
+              const next = breakUrlsPreserveReadable(el.value || "");
+              setTextareaValuePreserveCaret(el, next); // NEW: update visible text, keep caret
+              onMessageInput(el.value);                // keep existing flow
+          }
+      }, true);
+
+      document.addEventListener("change", (e) => {
+          if (e?.target?.id === "freeText") {
+              const el = e.target;
+              const next = breakUrlsPreserveReadable(el.value || "");
+              el.value = next;          // change event: caret doesn't matter much
+              onMessageInput(el.value); // keep existing flow
+          }
+      }, true);
+
 
     if (window.JFCustomWidget && typeof JFCustomWidget.subscribe === "function"){
       JFCustomWidget.subscribe("ready", () => {
@@ -513,7 +575,13 @@
       });
 
       JFCustomWidget.subscribe("submit", async () => {
-        if ($("freeText")) state.message = $("freeText").value || "";
+          if ($("freeText")) {
+              const el = $("freeText");
+              const next = breakUrlsPreserveReadable(el.value || "");
+              el.value = next;
+              state.message = next;
+          }
+
         if ($("parcel"))   state.parcel  = normalizeToken($("parcel").value);
         if ($("bill"))     state.bill    = String($("bill").value||"").replace(/\D/g,"");
 
