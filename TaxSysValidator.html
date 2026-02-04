@@ -244,10 +244,13 @@
   }
 
   // ======== EXTRACTORS ========
-  function extractFirstParcel(s){
-    const m = (s || "").match(new RegExp(`\\b[0-9A-Za-z]{${PARCEL_LEN}}\\b`, 'g')) || [];
-    return normalizeToken(m[0] || "");
-  }
+        function extractFirstParcel(s) {
+            const m = (s || "").match(new RegExp(`\\b[0-9A-Za-z]{${PARCEL_LEN}}\\b`, 'g')) || [];
+            const cand = normalizeToken(m[0] || "");
+            // Require at least one digit to avoid matching lorem-ipsum words / random tokens
+            if (!/\d/.test(cand)) return "";
+            return cand;
+        }
   const RE_BILL_CANDIDATES = /\d{11}|\d{9}/g;
   const isDigit = (c) => c >= "0" && c <= "9";
   function isDigitBounded(text, startIdx, len) {
